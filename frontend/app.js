@@ -3,11 +3,11 @@ const classes = ["SSS1", "SSS2", "SSS3"];
 const assessmentTypes = ["Class Test", "Quiz", "Assignment", "Mid-Term Test", "School Examination"];
 const terms = ["First Term", "Second Term", "Third Term"];
 const session = "2025/2026";
-const threshold = 50;
+const threshold = 60;
 
 const state = {
   role: "admin",
-  user: { name: "Amina Bello", role: "Super Admin", initials: "AB" },
+  user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" },
   students: [
     { id: "ST-2025-001", name: "Amaka Nwosu", className: "SSS2", gender: "Female", status: "Active", session },
     { id: "ST-2025-002", name: "Ibrahim Musa", className: "SSS3", gender: "Male", status: "Active", session },
@@ -53,8 +53,8 @@ const state = {
 };
 let authView = "login";
 const demoAccounts = {
-  "admin@school.edu.ng": { role: "admin", user: { name: "Amina Bello", role: "Super Admin", initials: "AB" } },
-  "teacher@school.edu.ng": { role: "teacher", user: { name: "Ngozi Eze", role: "Teacher", initials: "NE" } }
+  "admin@school.edu.ng": { role: "admin", user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" } },
+  "ngozi@school.edu.ng": { role: "teacher", user: { name: "Ngozi Eze", role: "Teacher", initials: "NE" } }
 };
 
 const app = document.getElementById("app");
