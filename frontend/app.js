@@ -53,8 +53,25 @@ const state = {
 };
 let authView = "login";
 const demoAccounts = {
-  "admin@school.edu.ng": { role: "admin", user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" } },
-  "ngozi@school.edu.ng": { role: "teacher", user: { name: "Ngozi Eze", role: "Teacher", initials: "NE" } }
+  "admin@school.edu.ng": { role: "admin", password: "password", user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" } },
+  "ngozi@school.edu.ng": { role: "teacher", password: "password", user: { name: "Ngozi Eze", role: "Teacher", initials: "NE" } }
+};
+const accountStorageKey = "ait-demo-accounts";
+const getAllAccounts = () => {
+  try {
+    const raw = localStorage.getItem(accountStorageKey);
+    const stored = raw ? JSON.parse(raw) : {};
+    return { ...demoAccounts, ...(stored || {}) };
+  } catch (error) {
+    return { ...demoAccounts };
+  }
+};
+const persistAccounts = (accounts) => {
+  try {
+    localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
+  } catch (error) {
+    console.warn("Could not save accounts to localStorage.", error);
+  }
 };
 
 const app = document.getElementById("app");
@@ -91,6 +108,21 @@ function selectOptions(items, selected = "", includeAll = false) {
   return `${includeAll ? '<option value="">All</option>' : '<option value="">Select...</option>'}${items.map((item) => `<option ${item === selected ? "selected" : ""} value="${esc(item)}">${esc(item)}</option>`).join("")}`;
 }
 
+function registerView() {
+  return `<main class="login-shell"><section class="login-card">
+    <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
+    <h2>Register Teacher</h2><p class="intro">Create a teacher account for the school portal.</p>
+    <form id="teacher-register-form"><div class="field"><label for="register-name">Full Name</label><input id="register-name" name="name" required placeholder="e.g. Amina Bello"></div>
+      <div class="field"><label for="register-email">School Email</label><input id="register-email" name="email" required type="email" placeholder="teacher@school.edu.ng"></div>
+      <div class="field"><label for="register-password">Password</label><div class="password-field"><input id="register-password" name="password" required type="password" placeholder="Create password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
+      <div class="field"><label for="register-subject">Subject Area</label><input id="register-subject" name="subject" required placeholder="e.g. Mathematics"></div>
+      <div class="field"><label for="register-classes">Assigned Classes</label><input id="register-classes" name="classes" placeholder="e.g. SSS1, SSS2"></div>
+      <button class="btn btn-primary btn-block" type="submit">Create Teacher Account <span>→</span></button>
+    </form>
+    <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
+  </section></main>`;
+}
+
 function loginView() {
   if (authView === "forgot") {
     return `<main class="login-shell"><section class="login-card">
@@ -102,14 +134,16 @@ function loginView() {
       <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
     </section></main>`;
   }
+  if (authView === "register") return registerView();
   return `<main class="login-shell"><section class="login-card">
     <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
     <h2>Welcome back</h2><p class="intro">Sign in to continue to your school workspace.</p>
     <form id="login-form"><div class="field"><label for="login-email">Username or Email</label><input id="login-email" required type="email" placeholder="you@school.edu.ng" value="admin@school.edu.ng"></div>
       <div class="field"><label for="login-password">Password</label><div class="password-field"><input id="login-password" required type="password" placeholder="Enter your password" value="password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
-      <div class="login-help"><span>Use your assigned school account</span><button class="text-link" type="button" data-action="forgot-password">Forgot password?</button></div>
+      <div class="login-help"><span>Use your assigned school account</span><button class="text-link" type="button" data-action="show-register">Register a teacher</button></div>
       <button class="btn btn-primary btn-block" type="submit">Sign In <span>→</span></button>
     </form>
+    <p class="login-back"><button class="text-link" type="button" data-action="forgot-password">Forgot password?</button></p>
   </section></main>`;
 }
 
@@ -300,9 +334,10 @@ function handleAction(action, element) {
   if (action === "sign-out") { sessionStorage.removeItem("ait-auth"); sessionStorage.removeItem("ait-role"); authView = "login"; render(); }
   if (action === "print-page") { window.print(); }
   if (action === "toggle-password") {
-    const password = document.getElementById("login-password");
-    const visible = password.type === "text";
-    password.type = visible ? "password" : "text";
+    const passwordInput = document.getElementById("login-password") || document.getElementById("register-password");
+    if (!passwordInput) return;
+    const visible = passwordInput.type === "text";
+    passwordInput.type = visible ? "password" : "text";
     element.textContent = "👁";
     element.classList.toggle("is-visible", !visible);
     element.setAttribute("aria-label", visible ? "Show password" : "Hide password");
@@ -320,6 +355,7 @@ function handleAction(action, element) {
   if (action === "view-directory") showToast(`${element.dataset.name} details opened.`);
   if (action === "clear-directory") { const input = document.getElementById("directory-search"); if (input) input.value = ""; document.querySelectorAll(".table-wrap tbody tr").forEach((row) => { row.hidden = false; }); }
   if (action === "apply-report") showToast("Report filters applied.");
+  if (action === "show-register") { authView = "register"; render(); }
   if (action === "forgot-password") { authView = "forgot"; render(); }
   if (action === "back-to-login") { authView = "login"; render(); }
 }
@@ -399,13 +435,40 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "login-form") {
     event.preventDefault();
     const email = event.target.querySelector("#login-email").value.trim().toLowerCase();
-    const account = demoAccounts[email];
+    const password = event.target.querySelector("#login-password").value;
+    const accounts = getAllAccounts();
+    const account = accounts[email];
     if (!account) return showToast("Use a registered school email address.");
+    if (account.password !== password) return showToast("Incorrect password. Please try again.");
     state.role = account.role;
     state.user = account.user;
     sessionStorage.setItem("ait-auth", "true");
     sessionStorage.setItem("ait-role", state.role);
     go("dashboard");
+    render();
+  }
+  if (event.target.id === "teacher-register-form") {
+    event.preventDefault();
+    const form = event.target;
+    const name = form.querySelector("#register-name").value.trim();
+    const email = form.querySelector("#register-email").value.trim().toLowerCase();
+    const password = form.querySelector("#register-password").value;
+    const subject = form.querySelector("#register-subject").value.trim();
+    const classesValue = form.querySelector("#register-classes").value.trim();
+    const accounts = getAllAccounts();
+    if (!name || !email || !password || !subject) return showToast("Please complete all required teacher details.");
+    if (accounts[email]) return showToast("That email is already registered.");
+    accounts[email] = {
+      role: "teacher",
+      password,
+      user: { name, role: "Teacher", initials: initials(name) }
+    };
+    persistAccounts(accounts);
+    if (!state.directoryAdds.teachers) state.directoryAdds.teachers = [];
+    state.directoryAdds.teachers.push([name, "Teacher", subject, classesValue || "Assigned classes pending"]);
+    authView = "login";
+    form.reset();
+    showToast("Teacher account created successfully.");
     render();
   }
   if (event.target.id === "forgot-password-form") {
@@ -417,7 +480,9 @@ document.addEventListener("submit", (event) => {
   }
 });
 if (sessionStorage.getItem("ait-auth")) {
+  const accounts = getAllAccounts();
   state.role = sessionStorage.getItem("ait-role") === "teacher" ? "teacher" : "admin";
-  state.user = Object.values(demoAccounts).find((account) => account.role === state.role).user;
+  const currentUser = Object.values(accounts).find((account) => account.role === state.role);
+  state.user = currentUser ? currentUser.user : { name: "Oduale Samson", role: "Super Admin", initials: "OS" };
 }
 render();
