@@ -24,40 +24,12 @@ const threshold = appConfig.assessmentThreshold;
 
 const state = {
   role: "admin",
-  user: { name: appConfig.admin.name, role: "Super Admin", initials: "OS" },
-  students: [
-    { id: "ST-2025-001", name: "Amaka Nwosu", className: "SSS2", gender: "Female", status: "Active", session },
-    { id: "ST-2025-002", name: "Ibrahim Musa", className: "SSS3", gender: "Male", status: "Active", session },
-    { id: "ST-2025-003", name: "Blessing Eze", className: "SSS1", gender: "Female", status: "Active", session },
-    { id: "ST-2025-004", name: "Tunde Adeyemi", className: "SSS2", gender: "Male", status: "Active", session },
-    { id: "ST-2025-005", name: "Favour Okoro", className: "SSS3", gender: "Female", status: "Active", session },
-    { id: "ST-2025-006", name: "Yusuf Abdullahi", className: "SSS1", gender: "Male", status: "Active", session },
-    { id: "ST-2025-007", name: "Chisom Okafor", className: "SSS1", gender: "Female", status: "Active", session },
-    { id: "ST-2025-008", name: "Daniel Adebayo", className: "SSS2", gender: "Male", status: "Active", session },
-    { id: "ST-2025-009", name: "Hauwa Suleiman", className: "SSS3", gender: "Female", status: "Active", session }
-  ],
-  assessments: [
-    { id: "AS-001", name: "Algebra Class Test", type: "Class Test", subject: "Mathematics", className: "SSS2", session, term: "First Term", date: "2025-10-14", max: 20, status: "Published" },
-    { id: "AS-002", name: "Organic Chemistry Quiz", type: "Quiz", subject: "Chemistry", className: "SSS3", session, term: "First Term", date: "2025-10-18", max: 25, status: "Published" },
-    { id: "AS-003", name: "Comprehension Assignment", type: "Assignment", subject: "English Language", className: "SSS1", session, term: "First Term", date: "2025-10-21", max: 20, status: "Published" },
-    { id: "AS-004", name: "First Term Mid-Term Test", type: "Mid-Term Test", subject: "Economics", className: "SSS2", session, term: "First Term", date: "2025-11-03", max: 50, status: "Draft" }
-  ],
-  results: [
-    { id: "RS-001", assessmentId: "AS-001", studentId: "ST-2025-001", score: 8 },
-    { id: "RS-002", assessmentId: "AS-001", studentId: "ST-2025-004", score: 15 },
-    { id: "RS-003", assessmentId: "AS-002", studentId: "ST-2025-002", score: 11 },
-    { id: "RS-004", assessmentId: "AS-002", studentId: "ST-2025-005", score: 21 },
-    { id: "RS-005", assessmentId: "AS-003", studentId: "ST-2025-003", score: 16 },
-    { id: "RS-006", assessmentId: "AS-003", studentId: "ST-2025-006", score: 12 }
-  ],
-  interventions: [
-    { id: "IN-001", studentId: "ST-2025-001", subject: "Mathematics", topic: "Quadratic Equations", assessmentId: "AS-001", previous: 40, reason: "Low assessment score", action: "One-on-one explanation", teacher: appConfig.teacher.name, start: "2025-10-16", followUp: "2025-11-08", status: "Follow-up Due", notes: "Review factorisation and completing the square." },
-    { id: "IN-002", studentId: "ST-2025-002", subject: "Chemistry", topic: "Organic Compounds", assessmentId: "AS-002", previous: 44, reason: "Difficulty understanding a topic", action: "Topic re-teaching", teacher: appConfig.teacher.name, start: "2025-10-20", followUp: "2025-11-12", status: "Active", notes: "Use structure diagrams during revision." },
-    { id: "IN-003", studentId: "ST-2025-003", subject: "English Language", topic: "Comprehension", assessmentId: "AS-003", previous: 80, reason: "Needs additional practice", action: "Practice exercises", teacher: appConfig.teacher.name, start: "2025-10-23", followUp: "2025-11-06", status: "Completed", notes: "Student improved after guided practice.", followUpScore: 90, outcome: "Improved" }
-  ],
-  followUps: [
-    { interventionId: "IN-003", score: 90, outcome: "Improved", date: "2025-11-06" }
-  ],
+  user: { name: "", role: "Super Admin", initials: "SA" },
+  students: [],
+  assessments: [],
+  results: [],
+  interventions: [],
+  followUps: [],
   directoryAdds: { teachers: [], classes: [], subjects: [] }
 };
 let authView = "login";
@@ -100,7 +72,7 @@ const apiRequest = async (path, options = {}) => {
   return response.status === 204 ? null : response.json();
 };
 const normalizeRole = (role) => String(role || "").toUpperCase() === "ADMIN" ? "admin" : "teacher";
-const fallbackUser = { name: "Oduale Samson", role: "Super Admin", initials: "OS" };
+const fallbackUser = { name: "Authenticated User", role: "Super Admin", initials: "AU" };
 const loadRealData = async () => {
   if (!sessionStorage.getItem("ait-token")) return;
   try {
@@ -118,7 +90,7 @@ const loadRealData = async () => {
       gender: student.gender || "Not specified",
       status: student.status || "Active",
       session: student.session || "2025/2026"
-    })) : state.students;
+    })) : [];
     state.assessments = Array.isArray(data.assessments) ? data.assessments.map((assessment) => ({
       id: assessment.id,
       name: assessment.name,
@@ -130,13 +102,13 @@ const loadRealData = async () => {
       date: assessment.date ? assessment.date.slice(0, 10) : "",
       max: assessment.maxScore,
       status: assessment.status || "Draft"
-    })) : state.assessments;
+    })) : [];
     state.results = Array.isArray(data.results) ? data.results.map((result) => ({
       id: result.id,
       assessmentId: result.assessmentId,
       studentId: result.studentId,
       score: Number(result.score)
-    })) : state.results;
+    })) : [];
     state.interventions = Array.isArray(data.interventions) ? data.interventions.map((item) => ({
       id: item.id,
       studentId: item.studentId,
@@ -153,13 +125,13 @@ const loadRealData = async () => {
       notes: item.notes || "",
       followUpScore: item.followUpScore,
       outcome: item.outcome || ""
-    })) : state.interventions;
+    })) : [];
     state.followUps = Array.isArray(data.followUps) ? data.followUps.map((follow) => ({
       interventionId: follow.interventionId,
       score: Number(follow.score),
       outcome: follow.outcome,
       date: follow.date ? follow.date.slice(0, 10) : ""
-    })) : state.followUps;
+    })) : [];
     state.directoryAdds = { teachers: [], classes: [], subjects: [] };
     if (Array.isArray(data.users)) {
       state.directoryAdds.teachers = data.users.filter((user) => user.role === "TEACHER").map((user) => [user.name, "Teacher", user.subject || "General", user.classes || "Assigned classes pending"]);
@@ -172,7 +144,13 @@ const loadRealData = async () => {
     sessionStorage.removeItem("ait-auth");
     sessionStorage.removeItem("ait-role");
     state.role = "admin";
-    state.user = fallbackUser;
+    state.user = { name: "", role: "Super Admin", initials: "SA" };
+    state.students = [];
+    state.assessments = [];
+    state.results = [];
+    state.interventions = [];
+    state.followUps = [];
+    showToast("School backend is unavailable. Start the API service to load live data.");
     render();
   }
 };
@@ -241,8 +219,8 @@ function loginView() {
   return `<main class="login-shell"><section class="login-card">
     <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
     <h2>Welcome back</h2><p class="intro">Sign in to continue to your school workspace.</p>
-    <form id="login-form"><div class="field"><label for="login-email">Username or Email</label><input id="login-email" required type="email" placeholder="you@school.edu.ng" value="admin@school.edu.ng"></div>
-      <div class="field"><label for="login-password">Password</label><div class="password-field"><input id="login-password" required type="password" placeholder="Enter your password" value="password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
+    <form id="login-form"><div class="field"><label for="login-email">Username or Email</label><input id="login-email" required type="email" placeholder="you@school.edu.ng"></div>
+      <div class="field"><label for="login-password">Password</label><div class="password-field"><input id="login-password" required type="password" placeholder="Enter your password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
       <div class="login-help"><span>Use your assigned school account</span><button class="text-link" type="button" data-action="show-register">Register a teacher</button></div>
       <button class="btn btn-primary btn-block" type="submit">Sign In <span>→</span></button>
     </form>

@@ -1,6 +1,6 @@
 # Assessment-to-Intervention Tracking System
 
-This project is a school dashboard for tracking academic assessment results, identifying students who need intervention, and recording follow-up support. It combines a browser-based interface with a backend API and PostgreSQL database.
+This project is designed as a production-oriented school management system for tracking academic assessment results, identifying students who need intervention, and recording follow-up support. It uses a browser-based frontend, a Node/Express backend, and a PostgreSQL database for real daily school use.
 
 ## Project structure
 
@@ -46,16 +46,18 @@ http://localhost:5000/api
 
 Open the `frontend/index.html` file in a browser, or run it with a local web server such as Live Server in VS Code.
 
-## Default login credentials
+## Default live credentials
 
-The default presentation credentials are:
+For a clean initial deployment, the system includes seeded production-style credentials:
 
 | Role | Email | Password |
 | --- | --- | --- |
 | Super Admin | `admin@school.edu.ng` | `password` |
 | Teacher | `teacher@school.edu.ng` | `password` |
 
-These values are also seeded in the database and are kept consistent in [frontend/app.js](frontend/app.js) and [backend/seed.mjs](backend/seed.mjs).
+These values are used only as the initial administrative accounts and should be replaced with your real school credentials before opening the system to staff.
+
+This is not a mock demo state; the app expects a real backend service and real database data to be running before it loads school records.
 
 ## How to change the school data
 
