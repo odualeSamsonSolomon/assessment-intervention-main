@@ -1,8 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+enum UserRole {
+  ADMIN
+  TEACHER
+}
+
+model User {
+  id          String        @id @default(cuid())
+  email       String        @unique
+  password    String
+  name        String
+  role        UserRole      @default(TEACHER)
+  subject     String?
+  classes     String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  assessments Assessment[]
+  interventions Intervention[]
+}
+
+model Student {
+  id            String        @id @default(cuid())
+  studentId     String        @unique
+  name          String
+  className     String
+  gender        String?
+  status        String        @default("Active")
+  session       String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  results       Result[]
+  interventions Intervention[]
+}
+
+model Assessment {
+  id          String    @id @default(cuid())
+  name        String
+  type        String
+  subject     String
+  className   String
+  session     String
+  term        String
+  date        DateTime
+  maxScore    Int
+  status      String    @default("Draft")
+  teacherId   String?
+  teacher     User?     @relation(fields: [teacherId], references: [id])
+  results     Result[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Result {
+  id           String     @id @default(cuid())
+  assessmentId String
+  studentId    String
+  score        Float
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model Intervention {
+  id            String      @id @default(cuid())
+  studentId     String
+  subject       String
+  topic         String
+  assessmentId  String?
+  previous      Float?
+  reason        String
+  action        String
+  teacherId     String?
+  teacher       User?       @relation(fields: [teacherId], references: [id])
+  startDate     DateTime
+  followUpDate  DateTime?
+  status        String      @default("Active")
+  notes         String?
+  outcome       String?
+  followUpScore Float?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  followUp      FollowUp?
+}
+
+model FollowUp {
+  id             String        @id @default(cuid())
+  interventionId String        @unique
+  score          Float
+  outcome        String
+  date           DateTime
+  createdAt      DateTime      @default(now())
+  intervention   Intervention  @relation(fields: [interventionId], references: [id], onDelete: Cascade)
 }

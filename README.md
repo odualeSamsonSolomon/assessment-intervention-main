@@ -1,95 +1,151 @@
 # Assessment-to-Intervention Tracking System
 
-A school assessment tracking frontend for recording student results, identifying students who need support, and following up on interventions.
+This project is a school dashboard for tracking academic assessment results, identifying students who need intervention, and recording follow-up support. It combines a browser-based interface with a backend API and PostgreSQL database.
 
-## Project Structure
+## Project structure
 
 ```text
-assessment-intervention-main/
-├── frontend/
-│   ├── index.html
-│   ├── app.js
-│   └── styles.css
+INT/
 ├── backend/
-│   └── .gitkeep
-└── README.md
+│   ├── prisma/
+│   ├── src/
+│   ├── .env
+│   ├── package.json
+│   └── seed.mjs
+├── frontend/
+│   ├── app.js
+│   ├── index.html
+│   └── styles.css
+├── README.md
+└── .gitignore
 ```
 
-The `frontend` folder contains the current browser-based demo. The `backend` folder is reserved for the future API, authentication, and database implementation.
+## Run the project
 
-## Run the Frontend
+### 1) Install backend dependencies
 
-No installation is required for the current demo.
+```bash
+cd backend
+npm install
+```
 
-1. Clone the repository:
+### 2) Start the backend
 
-   ```bash
-   git clone https://github.com/odualeSamsonSolomon/assessment-intervention-main.git
-   cd assessment-intervention-main
-   ```
+```bash
+cd backend
+npm run dev
+```
 
-2. Open `frontend/index.html` in a browser.
+The API runs on:
 
-   In VS Code, you can also use the Live Server extension and open the frontend folder.
+```text
+http://localhost:5000/api
+```
 
-## Demo Accounts
+### 3) Open the frontend
 
-The frontend currently uses simulated authentication:
+Open the `frontend/index.html` file in a browser, or run it with a local web server such as Live Server in VS Code.
 
-| Email | Workspace |
-| --- | --- |
-| `admin@school.edu.ng` | Super Admin |
-| `teacher@school.edu.ng` | Teacher |
+## Default login credentials
 
-Use any password for the demo. The backend should later replace this with real password validation and database-backed roles.
+The default presentation credentials are:
 
-## Main Workflows
+| Role | Email | Password |
+| --- | --- | --- |
+| Super Admin | `admin@school.edu.ng` | `password` |
+| Teacher | `teacher@school.edu.ng` | `password` |
 
-### Super Admin
+These values are also seeded in the database and are kept consistent in [frontend/app.js](frontend/app.js) and [backend/seed.mjs](backend/seed.mjs).
 
-- View the school dashboard
-- Manage students, teachers, classes, and subjects
-- Create assessments
-- Record student scores
-- Review performance and intervention needs
-- Print results and reports
+## How to change the school data
 
-### Teacher
+The default names and records are stored in the frontend configuration at the top of [frontend/app.js](frontend/app.js).
 
-- View assigned teaching workflows
-- Review students and assessment results
-- Record assessments and scores
-- Create interventions
+### Change the school name and admin data
+
+At the top of the file, update this section:
+
+```js
+const appConfig = {
+  schoolName: "Assessment-to-Intervention Tracking System",
+  shortSchoolName: "AIT",
+  academicSession: "2025/2026",
+  admin: {
+    name: "Oduale Samson",
+    email: "admin@school.edu.ng",
+    password: "password"
+  },
+  teacher: {
+    name: "Ngozi Eze",
+    email: "teacher@school.edu.ng",
+    password: "password"
+  }
+};
+```
+
+Replace the values with your actual school names and credentials for a real presentation or production use case.
+
+### Change the student names and records
+
+Edit the `state.students` array in [frontend/app.js](frontend/app.js). Each student object looks like this:
+
+```js
+{ id: "ST-2025-001", name: "Amaka Nwosu", className: "SSS2", gender: "Female", status: "Active", session }
+```
+
+Update:
+- `name` to the student's real name
+- `id` to the official student ID
+- `className` to the correct class
+- `gender`, `status`, and `session` if needed
+
+### Change the teachers, subjects, classes, and assessment settings
+
+You can also edit these arrays in the same file:
+
+```js
+const subjects = ["Mathematics", "English Language", ...];
+const classes = ["SSS1", "SSS2", "SSS3"];
+const assessmentTypes = ["Class Test", "Quiz", "Assignment", ...];
+const terms = ["First Term", "Second Term", "Third Term"];
+```
+
+## Backend configuration
+
+The backend uses environment variables in [backend/.env](backend/.env). Update these values if your database host, port, or JWT secret changes:
+
+```env
+PORT=5000
+DATABASE_URL="postgresql://postgres:your-password@localhost:5432/assessment_intervention?schema=public"
+JWT_SECRET="your-secret-key"
+CLIENT_URL="http://localhost:5500"
+```
+
+## Database setup
+
+If the database is not created yet, run:
+
+```bash
+cd backend
+npx prisma db push
+```
+
+Then seed the initial admin and demo data if needed:
+
+```bash
+cd backend
+node seed.mjs
+```
+
+## Typical workflow
+
+- Add students and classes
+- Create academic assessments
+- Enter student results
+- Flag students who fall below the threshold
+- Create intervention plans
 - Record follow-up outcomes
-- Access reports without Super Admin directory controls
 
-## Working With the Repository
+## Notes
 
-Before making changes:
-
-```bash
-git pull origin main
-```
-
-After making and testing changes:
-
-```bash
-git add .
-git commit -m "Describe the change"
-git push origin main
-```
-
-Please keep frontend changes inside `frontend/` and backend work inside `backend/`.
-
-## Future Backend Work
-
-The planned backend should provide:
-
-- Secure email and password authentication
-- Database-backed users and roles
-- Teacher class and subject assignments
-- Persistent students, assessments, results, and interventions
-- API endpoints consumed by the frontend
-- Server-side authorization for Super Admin and Teacher permissions
-
-The current frontend is a presentation prototype and does not provide production security or persistent storage.
+This is a real working project setup, not a placeholder demo. Replace the default names and records with your actual school information before using it in production or for a classroom workflow.

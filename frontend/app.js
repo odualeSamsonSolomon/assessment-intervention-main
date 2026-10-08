@@ -1,13 +1,30 @@
+const appConfig = {
+  schoolName: "Assessment-to-Intervention Tracking System",
+  shortSchoolName: "AIT",
+  academicSession: "2025/2026",
+  assessmentThreshold: 60,
+  admin: {
+    name: "Oduale Samson",
+    email: "admin@school.edu.ng",
+    password: "password"
+  },
+  teacher: {
+    name: "Ngozi Eze",
+    email: "teacher@school.edu.ng",
+    password: "password"
+  }
+};
+
 const subjects = ["Mathematics", "English Language", "Economics", "Biology", "Chemistry", "Physics", "Government", "Literature in English", "Geography", "Computer Studies", "Agricultural Science", "Civic Education", "Financial Accounting", "Commerce"];
 const classes = ["SSS1", "SSS2", "SSS3"];
 const assessmentTypes = ["Class Test", "Quiz", "Assignment", "Mid-Term Test", "School Examination"];
 const terms = ["First Term", "Second Term", "Third Term"];
-const session = "2025/2026";
-const threshold = 60;
+const session = appConfig.academicSession;
+const threshold = appConfig.assessmentThreshold;
 
 const state = {
   role: "admin",
-  user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" },
+  user: { name: appConfig.admin.name, role: "Super Admin", initials: "OS" },
   students: [
     { id: "ST-2025-001", name: "Amaka Nwosu", className: "SSS2", gender: "Female", status: "Active", session },
     { id: "ST-2025-002", name: "Ibrahim Musa", className: "SSS3", gender: "Male", status: "Active", session },
@@ -17,15 +34,7 @@ const state = {
     { id: "ST-2025-006", name: "Yusuf Abdullahi", className: "SSS1", gender: "Male", status: "Active", session },
     { id: "ST-2025-007", name: "Chisom Okafor", className: "SSS1", gender: "Female", status: "Active", session },
     { id: "ST-2025-008", name: "Daniel Adebayo", className: "SSS2", gender: "Male", status: "Active", session },
-    { id: "ST-2025-009", name: "Hauwa Suleiman", className: "SSS3", gender: "Female", status: "Active", session },
-    { id: "ST-2025-010", name: "Emeka Nnamani", className: "SSS3", gender: "Male", status: "Active", session },
-    { id: "ST-2025-011", name: "Zainab Ibrahim", className: "SSS1", gender: "Female", status: "Active", session },
-    { id: "ST-2025-012", name: "Oluwaseun Balogun", className: "SSS2", gender: "Male", status: "Active", session },
-    { id: "ST-2025-013", name: "Esther Udo", className: "SSS3", gender: "Female", status: "Active", session },
-    { id: "ST-2025-014", name: "Michael Eze", className: "SSS2", gender: "Male", status: "Active", session },
-    { id: "ST-2025-015", name: "Fatima Garba", className: "SSS1", gender: "Female", status: "Active", session },
-    { id: "ST-2025-016", name: "Nnamdi Obi", className: "SSS3", gender: "Male", status: "Active", session },
-    { id: "ST-2025-017", name: "Peace Adekunle", className: "SSS2", gender: "Female", status: "Active", session }
+    { id: "ST-2025-009", name: "Hauwa Suleiman", className: "SSS3", gender: "Female", status: "Active", session }
   ],
   assessments: [
     { id: "AS-001", name: "Algebra Class Test", type: "Class Test", subject: "Mathematics", className: "SSS2", session, term: "First Term", date: "2025-10-14", max: 20, status: "Published" },
@@ -42,9 +51,9 @@ const state = {
     { id: "RS-006", assessmentId: "AS-003", studentId: "ST-2025-006", score: 12 }
   ],
   interventions: [
-    { id: "IN-001", studentId: "ST-2025-001", subject: "Mathematics", topic: "Quadratic Equations", assessmentId: "AS-001", previous: 40, reason: "Low assessment score", action: "One-on-one explanation", teacher: "Chinedu Okafor", start: "2025-10-16", followUp: "2025-11-08", status: "Follow-up Due", notes: "Review factorisation and completing the square." },
-    { id: "IN-002", studentId: "ST-2025-002", subject: "Chemistry", topic: "Organic Compounds", assessmentId: "AS-002", previous: 44, reason: "Difficulty understanding a topic", action: "Topic re-teaching", teacher: "Chinedu Okafor", start: "2025-10-20", followUp: "2025-11-12", status: "Active", notes: "Use structure diagrams during revision." },
-    { id: "IN-003", studentId: "ST-2025-003", subject: "English Language", topic: "Comprehension", assessmentId: "AS-003", previous: 80, reason: "Needs additional practice", action: "Practice exercises", teacher: "Chinedu Okafor", start: "2025-10-23", followUp: "2025-11-06", status: "Completed", notes: "Student improved after guided practice.", followUpScore: 90, outcome: "Improved" }
+    { id: "IN-001", studentId: "ST-2025-001", subject: "Mathematics", topic: "Quadratic Equations", assessmentId: "AS-001", previous: 40, reason: "Low assessment score", action: "One-on-one explanation", teacher: appConfig.teacher.name, start: "2025-10-16", followUp: "2025-11-08", status: "Follow-up Due", notes: "Review factorisation and completing the square." },
+    { id: "IN-002", studentId: "ST-2025-002", subject: "Chemistry", topic: "Organic Compounds", assessmentId: "AS-002", previous: 44, reason: "Difficulty understanding a topic", action: "Topic re-teaching", teacher: appConfig.teacher.name, start: "2025-10-20", followUp: "2025-11-12", status: "Active", notes: "Use structure diagrams during revision." },
+    { id: "IN-003", studentId: "ST-2025-003", subject: "English Language", topic: "Comprehension", assessmentId: "AS-003", previous: 80, reason: "Needs additional practice", action: "Practice exercises", teacher: appConfig.teacher.name, start: "2025-10-23", followUp: "2025-11-06", status: "Completed", notes: "Student improved after guided practice.", followUpScore: 90, outcome: "Improved" }
   ],
   followUps: [
     { interventionId: "IN-003", score: 90, outcome: "Improved", date: "2025-11-06" }
@@ -53,8 +62,8 @@ const state = {
 };
 let authView = "login";
 const demoAccounts = {
-  "admin@school.edu.ng": { role: "admin", password: "password", user: { name: "Oduale Samson", role: "Super Admin", initials: "OS" } },
-  "ngozi@school.edu.ng": { role: "teacher", password: "password", user: { name: "Ngozi Eze", role: "Teacher", initials: "NE" } }
+  [appConfig.admin.email]: { role: "admin", password: appConfig.admin.password, user: { name: appConfig.admin.name, role: "Super Admin", initials: appConfig.admin.name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() } },
+  [appConfig.teacher.email]: { role: "teacher", password: appConfig.teacher.password, user: { name: appConfig.teacher.name, role: "Teacher", initials: appConfig.teacher.name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() } }
 };
 const accountStorageKey = "ait-demo-accounts";
 const getAllAccounts = () => {
@@ -71,6 +80,100 @@ const persistAccounts = (accounts) => {
     localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
   } catch (error) {
     console.warn("Could not save accounts to localStorage.", error);
+  }
+};
+const API_BASE = "http://localhost:5000/api";
+const apiRequest = async (path, options = {}) => {
+  const token = sessionStorage.getItem("ait-token");
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
+    },
+    ...options
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || "Request failed.");
+  }
+  return response.status === 204 ? null : response.json();
+};
+const normalizeRole = (role) => String(role || "").toUpperCase() === "ADMIN" ? "admin" : "teacher";
+const fallbackUser = { name: "Oduale Samson", role: "Super Admin", initials: "OS" };
+const loadRealData = async () => {
+  if (!sessionStorage.getItem("ait-token")) return;
+  try {
+    const data = await apiRequest("/dashboard");
+    state.role = normalizeRole(data.user?.role || state.role || "admin");
+    state.user = data.user ? {
+      name: data.user.name,
+      role: state.role === "admin" ? "Super Admin" : "Teacher",
+      initials: initials(data.user.name)
+    } : fallbackUser;
+    state.students = Array.isArray(data.students) ? data.students.map((student) => ({
+      id: student.studentId || student.id,
+      name: student.name,
+      className: student.className,
+      gender: student.gender || "Not specified",
+      status: student.status || "Active",
+      session: student.session || "2025/2026"
+    })) : state.students;
+    state.assessments = Array.isArray(data.assessments) ? data.assessments.map((assessment) => ({
+      id: assessment.id,
+      name: assessment.name,
+      type: assessment.type,
+      subject: assessment.subject,
+      className: assessment.className,
+      session: assessment.session,
+      term: assessment.term,
+      date: assessment.date ? assessment.date.slice(0, 10) : "",
+      max: assessment.maxScore,
+      status: assessment.status || "Draft"
+    })) : state.assessments;
+    state.results = Array.isArray(data.results) ? data.results.map((result) => ({
+      id: result.id,
+      assessmentId: result.assessmentId,
+      studentId: result.studentId,
+      score: Number(result.score)
+    })) : state.results;
+    state.interventions = Array.isArray(data.interventions) ? data.interventions.map((item) => ({
+      id: item.id,
+      studentId: item.studentId,
+      subject: item.subject,
+      topic: item.topic,
+      assessmentId: item.assessmentId,
+      previous: Number(item.previous || 0),
+      reason: item.reason,
+      action: item.action,
+      teacher: item.teacher ? item.teacher.name || "Teacher" : "Teacher",
+      start: item.start ? item.start.slice(0, 10) : "",
+      followUp: item.followUp ? item.followUp.slice(0, 10) : "",
+      status: item.status || "Active",
+      notes: item.notes || "",
+      followUpScore: item.followUpScore,
+      outcome: item.outcome || ""
+    })) : state.interventions;
+    state.followUps = Array.isArray(data.followUps) ? data.followUps.map((follow) => ({
+      interventionId: follow.interventionId,
+      score: Number(follow.score),
+      outcome: follow.outcome,
+      date: follow.date ? follow.date.slice(0, 10) : ""
+    })) : state.followUps;
+    state.directoryAdds = { teachers: [], classes: [], subjects: [] };
+    if (Array.isArray(data.users)) {
+      state.directoryAdds.teachers = data.users.filter((user) => user.role === "TEACHER").map((user) => [user.name, "Teacher", user.subject || "General", user.classes || "Assigned classes pending"]);
+    }
+    if (!sessionStorage.getItem("ait-auth")) sessionStorage.setItem("ait-auth", "true");
+    render();
+  } catch (error) {
+    console.warn("Could not hydrate dashboard from API:", error);
+    sessionStorage.removeItem("ait-token");
+    sessionStorage.removeItem("ait-auth");
+    sessionStorage.removeItem("ait-role");
+    state.role = "admin";
+    state.user = fallbackUser;
+    render();
   }
 };
 
@@ -360,27 +463,84 @@ function handleAction(action, element) {
   if (action === "back-to-login") { authView = "login"; render(); }
 }
 
-function saveAssessment(event) {
+async function saveAssessment(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
   if (!data.name || !data.type || !data.subject || !data.className || !data.date || Number(data.max) <= 0) return showToast("Please complete all required fields.");
+  if (sessionStorage.getItem("ait-token")) {
+    try {
+      const payload = { ...data, maxScore: Number(data.max), status: "Draft" };
+      await apiRequest("/assessments", { method: "POST", body: JSON.stringify(payload) });
+      await loadRealData();
+      showToast("Assessment saved successfully.");
+      go("assessments");
+      return;
+    } catch (error) {
+      showToast(error.message || "Unable to save assessment.");
+      return;
+    }
+  }
   state.assessments.push({ id: `AS-${String(state.assessments.length + 1).padStart(3, "0")}`, ...data, max: Number(data.max), status: "Draft" });
   showToast("Assessment saved successfully."); go("assessments");
 }
-function saveScores(event) {
+async function saveScores(event) {
   event.preventDefault();
   const assessment = assessmentById(pageParam()), data = Object.fromEntries(new FormData(event.target));
   const roster = state.students.filter((student) => student.className === assessment.className);
   for (const student of roster) { const raw = data[student.id]; if (raw === "" || raw === undefined || Number(raw) < 0 || Number(raw) > assessment.max || Number.isNaN(Number(raw))) return showToast(`Enter a valid score for ${student.name}.`); }
+  if (sessionStorage.getItem("ait-token")) {
+    try {
+      const payload = {
+        assessmentId: assessment.id,
+        scores: roster.map((student) => ({ studentId: student.id, score: Number(data[student.id]) }))
+      };
+      await apiRequest("/results", { method: "POST", body: JSON.stringify(payload) });
+      await loadRealData();
+      showToast("Scores saved successfully.");
+      go("results");
+      return;
+    } catch (error) {
+      showToast(error.message || "Unable to save results.");
+      return;
+    }
+  }
   roster.forEach((student) => { const existing = state.results.find((result) => result.studentId === student.id && result.assessmentId === assessment.id); if (existing) existing.score = Number(data[student.id]); else state.results.push({ id: `RS-${String(state.results.length + 1).padStart(3, "0")}`, assessmentId: assessment.id, studentId: student.id, score: Number(data[student.id]) }); });
   assessment.status = "Published"; showToast("Scores saved successfully."); go("results");
 }
-function saveIntervention(event) {
+async function saveIntervention(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
   const studentId = data.studentId.split(" ")[0];
   if (!data.studentId || !data.subject || !data.topic || !data.reason || !data.action || !data.teacher || !data.start || !data.followUp) return showToast("Please complete all required fields.");
   if (data.followUp < data.start) return showToast("Follow-Up Date cannot be earlier than Start Date.");
+  if (sessionStorage.getItem("ait-token")) {
+    try {
+      await apiRequest("/interventions", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId,
+          subject: data.subject,
+          topic: data.topic,
+          assessmentId: data.assessmentId || null,
+          previous: Number(data.previous) || 0,
+          reason: data.reason,
+          action: data.action,
+          teacherId: null,
+          startDate: data.start,
+          followUpDate: data.followUp,
+          status: data.status || "Active",
+          notes: data.notes || ""
+        })
+      });
+      await loadRealData();
+      showToast("Intervention created successfully.");
+      go("interventions");
+      return;
+    } catch (error) {
+      showToast(error.message || "Unable to create intervention.");
+      return;
+    }
+  }
   state.interventions.push({ id: `IN-${String(state.interventions.length + 1).padStart(3, "0")}`, ...data, studentId, previous: Number(data.previous) || 0 });
   showToast("Intervention created successfully."); go("interventions");
 }
@@ -431,21 +591,33 @@ document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (target && !sessionStorage.getItem("ait-auth")) handleAction(target.dataset.action, target);
 });
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   if (event.target.id === "login-form") {
     event.preventDefault();
     const email = event.target.querySelector("#login-email").value.trim().toLowerCase();
     const password = event.target.querySelector("#login-password").value;
-    const accounts = getAllAccounts();
-    const account = accounts[email];
-    if (!account) return showToast("Use a registered school email address.");
-    if (account.password !== password) return showToast("Incorrect password. Please try again.");
-    state.role = account.role;
-    state.user = account.user;
-    sessionStorage.setItem("ait-auth", "true");
-    sessionStorage.setItem("ait-role", state.role);
-    go("dashboard");
-    render();
+    if (!email || !password) return showToast("Enter your email and password.");
+    try {
+      const response = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+      });
+      const user = response.user;
+      state.role = normalizeRole(user.role);
+      state.user = {
+        name: user.name,
+        role: state.role === "admin" ? "Super Admin" : "Teacher",
+        initials: initials(user.name)
+      };
+      sessionStorage.setItem("ait-auth", "true");
+      sessionStorage.setItem("ait-role", state.role);
+      sessionStorage.setItem("ait-token", response.token);
+      go("dashboard");
+      await loadRealData();
+      render();
+    } catch (error) {
+      showToast(error.message || "Unable to sign in.");
+    }
   }
   if (event.target.id === "teacher-register-form") {
     event.preventDefault();
@@ -455,21 +627,26 @@ document.addEventListener("submit", (event) => {
     const password = form.querySelector("#register-password").value;
     const subject = form.querySelector("#register-subject").value.trim();
     const classesValue = form.querySelector("#register-classes").value.trim();
-    const accounts = getAllAccounts();
     if (!name || !email || !password || !subject) return showToast("Please complete all required teacher details.");
-    if (accounts[email]) return showToast("That email is already registered.");
-    accounts[email] = {
-      role: "teacher",
-      password,
-      user: { name, role: "Teacher", initials: initials(name) }
-    };
-    persistAccounts(accounts);
-    if (!state.directoryAdds.teachers) state.directoryAdds.teachers = [];
-    state.directoryAdds.teachers.push([name, "Teacher", subject, classesValue || "Assigned classes pending"]);
-    authView = "login";
-    form.reset();
-    showToast("Teacher account created successfully.");
-    render();
+    try {
+      const response = await apiRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ name, email, password, role: "TEACHER", subject, classes: classesValue })
+      });
+      sessionStorage.setItem("ait-auth", "true");
+      sessionStorage.setItem("ait-role", "teacher");
+      sessionStorage.setItem("ait-token", response.token);
+      state.role = "teacher";
+      state.user = { name: response.user.name, role: "Teacher", initials: initials(response.user.name) };
+      authView = "login";
+      form.reset();
+      await loadRealData();
+      showToast("Teacher account created successfully.");
+      go("dashboard");
+      render();
+    } catch (error) {
+      showToast(error.message || "Unable to create teacher account.");
+    }
   }
   if (event.target.id === "forgot-password-form") {
     event.preventDefault();
@@ -479,10 +656,9 @@ document.addEventListener("submit", (event) => {
     event.target.reset();
   }
 });
-if (sessionStorage.getItem("ait-auth")) {
-  const accounts = getAllAccounts();
+if (sessionStorage.getItem("ait-auth") && sessionStorage.getItem("ait-token")) {
   state.role = sessionStorage.getItem("ait-role") === "teacher" ? "teacher" : "admin";
-  const currentUser = Object.values(accounts).find((account) => account.role === state.role);
-  state.user = currentUser ? currentUser.user : { name: "Oduale Samson", role: "Super Admin", initials: "OS" };
+  state.user = { name: "Loading profile...", role: state.role === "admin" ? "Super Admin" : "Teacher", initials: "LD" };
+  loadRealData();
 }
 render();
