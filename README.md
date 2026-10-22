@@ -46,17 +46,6 @@ http://localhost:5000/api
 
 Open the `frontend/index.html` file in a browser, or run it with a local web server such as Live Server in VS Code.
 
-## Default live credentials
-
-For a clean initial deployment, the system includes seeded production-style credentials:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Super Admin | `admin@school.edu.ng` | `password` |
-| Teacher | `teacher@school.edu.ng` | `password` |
-
-These values are used only as the initial administrative accounts and should be replaced with your real school credentials before opening the system to staff.
-
 This is not a mock demo state; the app expects a real backend service and real database data to be running before it loads school records.
 
 ## How to change the school data
@@ -73,19 +62,15 @@ const appConfig = {
   shortSchoolName: "AIT",
   academicSession: "2025/2026",
   admin: {
-    name: "Oduale Samson",
-    email: "admin@school.edu.ng",
-    password: "password"
+    name: "Your Admin Name"
   },
   teacher: {
-    name: "Ngozi Eze",
-    email: "teacher@school.edu.ng",
-    password: "password"
+    name: "Your Teacher Name"
   }
 };
 ```
 
-Replace the values with your actual school names and credentials for a real presentation or production use case.
+Replace the values with your actual school names for a real presentation or production use case.
 
 ### Change the student names and records
 
