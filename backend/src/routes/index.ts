@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { getCurrentUser, loginUser, registerUser } from '../controllers/auth.controller.js';
-import { createAssessment, createIntervention, createStudent, getAssessments, getDashboardData, getInterventions, getResults, getStudents, saveFollowUp, saveScores } from '../controllers/data.controller.js';
-import { requireAuth } from '../middleware/auth.js';
+import { createTeacher, getCurrentUser, getSetupStatus, loginUser, setupAdmin } from '../controllers/auth.controller.js';
+import { createAssessment, createIntervention, createStudent, getAssessments, getDashboardData, getInterventions, getResults, getStudents, saveFollowUp, saveScores, updateStudent } from '../controllers/data.controller.js';
+import { requireAdmin, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -9,13 +9,16 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'assessment-intervention-api' });
 });
 
-router.post('/auth/register', registerUser);
+router.get('/auth/setup-status', getSetupStatus);
+router.post('/auth/setup-admin', setupAdmin);
 router.post('/auth/login', loginUser);
 router.get('/auth/me', requireAuth, getCurrentUser);
 
 router.get('/dashboard', requireAuth, getDashboardData);
 router.get('/students', requireAuth, getStudents);
-router.post('/students', requireAuth, createStudent);
+router.post('/students', requireAuth, requireAdmin, createStudent);
+router.put('/students/:studentId', requireAuth, requireAdmin, updateStudent);
+router.post('/teachers', requireAuth, requireAdmin, createTeacher);
 router.get('/assessments', requireAuth, getAssessments);
 router.post('/assessments', requireAuth, createAssessment);
 router.get('/results', requireAuth, getResults);

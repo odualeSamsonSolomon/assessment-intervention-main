@@ -2,17 +2,7 @@ const appConfig = {
   schoolName: "Assessment-to-Intervention Tracking System",
   shortSchoolName: "AIT",
   academicSession: "2025/2026",
-  assessmentThreshold: 60,
-  admin: {
-    name: "Oduale Samson",
-    email: "admin@school.edu.ng",
-    password: "password"
-  },
-  teacher: {
-    name: "Ngozi Eze",
-    email: "teacher@school.edu.ng",
-    password: "password"
-  }
+  assessmentThreshold: 60
 };
 
 const subjects = ["Mathematics", "English Language", "Economics", "Biology", "Chemistry", "Physics", "Government", "Literature in English", "Geography", "Computer Studies", "Agricultural Science", "Civic Education", "Financial Accounting", "Commerce"];
@@ -30,30 +20,11 @@ const state = {
   results: [],
   interventions: [],
   followUps: [],
-  directoryAdds: { teachers: [], classes: [], subjects: [] }
+  users: []
 };
 let authView = "login";
-const demoAccounts = {
-  [appConfig.admin.email]: { role: "admin", password: appConfig.admin.password, user: { name: appConfig.admin.name, role: "Super Admin", initials: appConfig.admin.name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() } },
-  [appConfig.teacher.email]: { role: "teacher", password: appConfig.teacher.password, user: { name: appConfig.teacher.name, role: "Teacher", initials: appConfig.teacher.name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() } }
-};
-const accountStorageKey = "ait-demo-accounts";
-const getAllAccounts = () => {
-  try {
-    const raw = localStorage.getItem(accountStorageKey);
-    const stored = raw ? JSON.parse(raw) : {};
-    return { ...demoAccounts, ...(stored || {}) };
-  } catch (error) {
-    return { ...demoAccounts };
-  }
-};
-const persistAccounts = (accounts) => {
-  try {
-    localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
-  } catch (error) {
-    console.warn("Could not save accounts to localStorage.", error);
-  }
-};
+let needsAdminSetup = null;
+let setupStatusError = false;
 const API_BASE = "http://localhost:5000/api";
 const apiRequest = async (path, options = {}) => {
   const token = sessionStorage.getItem("ait-token");
@@ -71,6 +42,18 @@ const apiRequest = async (path, options = {}) => {
   }
   return response.status === 204 ? null : response.json();
 };
+const checkSetupStatus = async () => {
+  try {
+    const setup = await apiRequest("/auth/setup-status");
+    needsAdminSetup = Boolean(setup.needsAdminSetup);
+    setupStatusError = false;
+  } catch (error) {
+    needsAdminSetup = null;
+    setupStatusError = true;
+    console.warn("Could not check initial setup status:", error);
+  }
+  render();
+};
 const normalizeRole = (role) => String(role || "").toUpperCase() === "ADMIN" ? "admin" : "teacher";
 const fallbackUser = { name: "Authenticated User", role: "Super Admin", initials: "AU" };
 const loadRealData = async () => {
@@ -85,8 +68,11 @@ const loadRealData = async () => {
     } : fallbackUser;
     state.students = Array.isArray(data.students) ? data.students.map((student) => ({
       id: student.studentId || student.id,
+      dbId: student.id,
       name: student.name,
       className: student.className,
+      teacherId: student.teacherId || null,
+      teacherName: student.teacher?.name || "Unassigned",
       gender: student.gender || "Not specified",
       status: student.status || "Active",
       session: student.session || "2025/2026"
@@ -106,12 +92,12 @@ const loadRealData = async () => {
     state.results = Array.isArray(data.results) ? data.results.map((result) => ({
       id: result.id,
       assessmentId: result.assessmentId,
-      studentId: result.studentId,
+      studentId: result.student?.studentId || result.studentId,
       score: Number(result.score)
     })) : [];
     state.interventions = Array.isArray(data.interventions) ? data.interventions.map((item) => ({
       id: item.id,
-      studentId: item.studentId,
+      studentId: item.student?.studentId || item.studentId,
       subject: item.subject,
       topic: item.topic,
       assessmentId: item.assessmentId,
@@ -132,10 +118,7 @@ const loadRealData = async () => {
       outcome: follow.outcome,
       date: follow.date ? follow.date.slice(0, 10) : ""
     })) : [];
-    state.directoryAdds = { teachers: [], classes: [], subjects: [] };
-    if (Array.isArray(data.users)) {
-      state.directoryAdds.teachers = data.users.filter((user) => user.role === "TEACHER").map((user) => [user.name, "Teacher", user.subject || "General", user.classes || "Assigned classes pending"]);
-    }
+    state.users = Array.isArray(data.users) ? data.users : [];
     if (!sessionStorage.getItem("ait-auth")) sessionStorage.setItem("ait-auth", "true");
     render();
   } catch (error) {
@@ -150,6 +133,7 @@ const loadRealData = async () => {
     state.results = [];
     state.interventions = [];
     state.followUps = [];
+    state.users = [];
     showToast("School backend is unavailable. Start the API service to load live data.");
     render();
   }
@@ -159,7 +143,7 @@ const app = document.getElementById("app");
 const toast = document.getElementById("toast");
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
 const fmtDate = (date) => date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—";
-const studentById = (id) => state.students.find((student) => student.id === id);
+const studentById = (id) => state.students.find((student) => student.id === id || student.dbId === id);
 const assessmentById = (id) => state.assessments.find((assessment) => assessment.id === id);
 const interventionById = (id) => state.interventions.find((item) => item.id === id);
 const percent = (score, max) => max ? Math.round((Number(score) / Number(max)) * 100) : 0;
@@ -170,12 +154,15 @@ const badge = (text) => {
 };
 const initials = (name) => name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 const pageName = () => (location.hash.replace("#/", "").split("/")[0].split("?")[0] || "dashboard");
-const pageParam = () => location.hash.replace("#/", "").split("/")[1];
+const pageParam = () => {
+  const value = location.hash.replace("#/", "").split("/")[1] || "";
+  try { return decodeURIComponent(value); } catch { return value; }
+};
 const go = (path) => { location.hash = `#/${path}`; };
 const showToast = (message) => { toast.textContent = message; toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 2800); };
 function routeFromElement(element) {
   const route = element.dataset.route;
-  if (route === "student-details") go(`student-details/${element.dataset.id}`);
+  if (route === "student-details") go(`student-details/${encodeURIComponent(element.dataset.id)}`);
   else if (route === "record-scores") go(`record-scores/${element.dataset.id}`);
   else if (route === "create-intervention" && element.dataset.student) go(`create-intervention?student=${element.dataset.student}`);
   else go(route);
@@ -189,22 +176,22 @@ function selectOptions(items, selected = "", includeAll = false) {
   return `${includeAll ? '<option value="">All</option>' : '<option value="">Select...</option>'}${items.map((item) => `<option ${item === selected ? "selected" : ""} value="${esc(item)}">${esc(item)}</option>`).join("")}`;
 }
 
-function registerView() {
+function setupAdminView() {
   return `<main class="login-shell"><section class="login-card">
     <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
-    <h2>Register Teacher</h2><p class="intro">Create a teacher account for the school portal.</p>
-    <form id="teacher-register-form"><div class="field"><label for="register-name">Full Name</label><input id="register-name" name="name" required placeholder="e.g. Amina Bello"></div>
-      <div class="field"><label for="register-email">School Email</label><input id="register-email" name="email" required type="email" placeholder="teacher@school.edu.ng"></div>
-      <div class="field"><label for="register-password">Password</label><div class="password-field"><input id="register-password" name="password" required type="password" placeholder="Create password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
-      <div class="field"><label for="register-subject">Subject Area</label><input id="register-subject" name="subject" required placeholder="e.g. Mathematics"></div>
-      <div class="field"><label for="register-classes">Assigned Classes</label><input id="register-classes" name="classes" placeholder="e.g. SSS1, SSS2"></div>
-      <button class="btn btn-primary btn-block" type="submit">Create Teacher Account <span>→</span></button>
+    <h2>Set up administrator</h2><p class="intro">Create the first administrator account to start managing school records.</p>
+    <form id="setup-admin-form"><div class="field"><label for="setup-name">Full Name</label><input id="setup-name" name="name" required></div>
+      <div class="field"><label for="setup-email">School Email</label><input id="setup-email" name="email" required type="email"></div>
+      <div class="field"><label for="setup-password">Password</label><div class="password-field"><input id="setup-password" name="password" required type="password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
+      <button class="btn btn-primary btn-block" type="submit">Create Administrator <span>→</span></button>
     </form>
-    <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
   </section></main>`;
 }
 
 function loginView() {
+  if (setupStatusError) {
+    return `<main class="login-shell"><section class="login-card"><div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div><h2>Backend unavailable</h2><p class="intro">Connect to the school backend to check administrator setup.</p><button class="btn btn-primary btn-block" type="button" data-action="retry-setup-status">Retry connection</button></section></main>`;
+  }
   if (authView === "forgot") {
     return `<main class="login-shell"><section class="login-card">
       <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
@@ -215,13 +202,13 @@ function loginView() {
       <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
     </section></main>`;
   }
-  if (authView === "register") return registerView();
+  if (needsAdminSetup) return setupAdminView();
   return `<main class="login-shell"><section class="login-card">
     <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
     <h2>Welcome back</h2><p class="intro">Sign in to continue to your school workspace.</p>
     <form id="login-form"><div class="field"><label for="login-email">Username or Email</label><input id="login-email" required type="email" placeholder="you@school.edu.ng"></div>
       <div class="field"><label for="login-password">Password</label><div class="password-field"><input id="login-password" required type="password" placeholder="Enter your password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
-      <div class="login-help"><span>Use your assigned school account</span><button class="text-link" type="button" data-action="show-register">Register a teacher</button></div>
+      <div class="login-help"><span>Use your assigned school account</span></div>
       <button class="btn btn-primary btn-block" type="submit">Sign In <span>→</span></button>
     </form>
     <p class="login-back"><button class="text-link" type="button" data-action="forgot-password">Forgot password?</button></p>
@@ -255,12 +242,12 @@ function dashboardView() {
   const active = state.interventions.filter((item) => item.status === "Active");
   const completed = state.interventions.filter((item) => item.status === "Completed");
   const cards = state.role === "admin"
-    ? [{ label: "Total Students", value: state.students.length, icon: "♙", route: "students", note: "Across 3 classes" }, { label: "Total Teachers", value: 8, icon: "♧", route: "teachers", note: "4 subject areas" }, { label: "Total Classes", value: 3, icon: "▦", route: "classes", note: "SSS1 – SSS3" }, { label: "Assessments Recorded", value: state.assessments.length, icon: "✓", route: "assessments", note: "This academic session" }, { label: "Needing Intervention", value: needs.length, icon: "!", route: "results", note: "Below threshold" }, { label: "Active Interventions", value: active.length, icon: "✦", route: "interventions", note: "Requires attention" }]
+    ? [{ label: "Total Students", value: state.students.length, icon: "♙", route: "students", note: "Enrolled students" }, { label: "Total Teachers", value: state.users.filter((user) => user.role === "TEACHER").length, icon: "♧", route: "teachers", note: "Teacher accounts" }, { label: "Total Classes", value: new Set(state.students.map((student) => student.className)).size, icon: "▦", route: "classes", note: "Classes represented" }, { label: "Assessments Recorded", value: state.assessments.length, icon: "✓", route: "assessments", note: "This academic session" }, { label: "Needing Intervention", value: needs.length, icon: "!", route: "results", note: "Below threshold" }, { label: "Active Interventions", value: active.length, icon: "✦", route: "interventions", note: "Requires attention" }]
     : [{ label: "Total Students", value: state.students.length, icon: "♙", route: "students", note: "Assigned students" }, { label: "Assessments Recorded", value: state.assessments.length, icon: "✓", route: "assessments", note: "This academic session" }, { label: "Needing Intervention", value: needs.length, icon: "!", route: "results", note: "Below threshold" }, { label: "Active Interventions", value: active.length, icon: "✦", route: "interventions", note: "Requires attention" }, { label: "Completed Interventions", value: completed.length, icon: "✓", route: "follow-up", note: "This term" }, { label: "Showing Improvement", value: state.followUps.filter((f) => f.outcome === "Improved").length, icon: "↗", route: "follow-up", note: "After follow-up" }];
   return `${statCards(cards)}<div class="grid-2"><section class="card"><div class="card-header"><div><h3>Students Needing Intervention</h3><p>Results below the configurable ${threshold}% threshold</p></div><button class="section-link" data-route="results">View all results →</button></div><div class="table-wrap">${needs.length ? `<table><thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Percentage</th><th>Reason</th><th>Action</th></tr></thead><tbody>${needs.slice(0, 5).map((result) => { const student = studentById(result.studentId); const assessment = assessmentById(result.assessmentId); const pct = percent(result.score, assessment.max); return `<tr><td><span class="primary-text">${student.name}</span><br><span class="muted">${student.id}</span></td><td>${student.className}</td><td>${assessment.subject}</td><td>${badge(`${pct}%`)}</td><td>Low assessment score</td><td><button class="link-action" data-route="student-details" data-id="${student.id}">Review</button></td></tr>`; }).join("")}</tbody></table>` : emptyState("No students need intervention", "All recorded results meet the current threshold.")}</div></section>
     <section class="card"><div class="card-header"><div><h3>Intervention Overview</h3><p>Current support activity</p></div></div><div class="card-body"><div class="overview-list"><div class="overview-row"><span>Active Interventions</span><strong>${active.length}</strong></div><div class="overview-row"><span>Follow-up Due</span><strong>${state.interventions.filter((item) => item.status === "Follow-up Due").length}</strong></div><div class="overview-row"><span>Completed Interventions</span><strong>${completed.length}</strong></div><div class="overview-row"><span>Students Showing Improvement</span><strong>${state.followUps.filter((f) => f.outcome === "Improved").length}</strong></div></div></div></section></div>
     <div class="grid-2" style="margin-top:20px"><section class="card"><div class="card-header"><div><h3>Active Interventions</h3><p>Support actions in progress</p></div><button class="section-link" data-route="interventions">View all →</button></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Subject</th><th>Action taken</th><th>Follow-up</th><th>Status</th></tr></thead><tbody>${state.interventions.filter((item) => item.status !== "Completed").map((item) => { const student = studentById(item.studentId); return `<tr><td class="primary-text">${student.name}</td><td>${item.subject}</td><td>${item.action}</td><td>${fmtDate(item.followUp)}</td><td>${badge(item.status)}</td></tr>`; }).join("")}</tbody></table></div></section>
-    <section class="card"><div class="card-header"><div><h3>${state.role === "admin" ? "Recent Activity" : "Quick Actions"}</h3><p>${state.role === "admin" ? "Latest updates in the workspace" : "Common tasks for your classes"}</p></div></div><div class="card-body">${state.role === "admin" ? `<div class="activity-list">${["Assessment recorded for SSS2 Mathematics", "Student result updated for Amaka Nwosu", "Intervention created for Ibrahim Musa", "Follow-up result recorded for Blessing Eze"].map((item, index) => `<div class="activity"><span class="activity-dot">${["✓", "↗", "✦", "•"][index]}</span><div><p>${item}</p><small>${index + 1} day${index ? "s" : ""} ago</small></div></div>`).join("")}</div>` : `<div class="quick-actions"><button data-route="students">♙ &nbsp; View Students</button><button data-route="create-assessment">＋ &nbsp; Create Assessment</button><button data-route="results">▤ &nbsp; Review Results</button><button data-route="create-intervention">✦ &nbsp; Create Intervention</button></div>`}</div></section></div>`;
+    <section class="card"><div class="card-header"><div><h3>${state.role === "admin" ? "School Records" : "Quick Actions"}</h3><p>${state.role === "admin" ? "Manage the records in this workspace" : "Common tasks for your classes"}</p></div></div><div class="card-body">${state.role === "admin" ? emptyState("No activity feed", "An activity feed is not configured.") : `<div class="quick-actions"><button data-route="students">♙ &nbsp; View Students</button><button data-route="create-assessment">＋ &nbsp; Create Assessment</button><button data-route="results">▤ &nbsp; Review Results</button><button data-route="create-intervention">✦ &nbsp; Create Intervention</button></div>`}</div></section></div>`;
 }
 
 function emptyState(title, text, icon = "⌁") { return `<div class="empty-state"><div class="empty-icon">${icon}</div><strong>${title}</strong><span>${text}</span></div>`; }
@@ -275,7 +262,7 @@ function renderStudentsTable() {
   const classFilter = document.getElementById("student-class")?.value || "";
   const status = document.getElementById("student-status")?.value || "";
   const rows = state.students.filter((s) => (!search || `${s.name} ${s.id}`.toLowerCase().includes(search)) && (!classFilter || s.className === classFilter) && (!status || s.status === status));
-  document.getElementById("students-table").innerHTML = rows.length ? `<table><thead><tr><th>Student ID</th><th>Student Name</th><th>Class</th><th>Academic Session</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map((student) => `<tr><td class="primary-text">${student.id}</td><td>${student.name}</td><td>${student.className}</td><td>${student.session}</td><td>${badge(student.status)}</td><td><button class="link-action" data-route="student-details" data-id="${student.id}">View</button>${state.role === "admin" ? `<button class="link-action" data-action="edit-student" data-id="${student.id}">Edit</button>` : ""}</td></tr>`).join("")}</tbody></table>` : emptyState(search || classFilter || status ? "No search results" : "No students found", search || classFilter || status ? "Try changing or clearing your filters." : "Students will appear here after they are added.");
+  document.getElementById("students-table").innerHTML = rows.length ? `<table><thead><tr><th>Student ID</th><th>Student Name</th><th>Class</th><th>Assigned Teacher</th><th>Academic Session</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map((student) => `<tr><td class="primary-text">${esc(student.id)}</td><td>${esc(student.name)}</td><td>${esc(student.className)}</td><td>${esc(student.teacherName)}</td><td>${esc(student.session)}</td><td>${badge(student.status)}</td><td><button class="link-action" data-route="student-details" data-id="${esc(student.id)}">View</button></td></tr>`).join("")}</tbody></table>` : emptyState(search || classFilter || status ? "No search results" : "No students found", search || classFilter || status ? "Try changing or clearing your filters." : "Students will appear here after they are added.");
   bindGeneratedActions(document.getElementById("students-table"));
 }
 
@@ -352,10 +339,16 @@ function reportsView() {
 }
 
 function simpleDirectoryView(type) {
-  const baseData = type === "teachers" ? [["Amina Bello", "Super Admin", "School-wide", "All classes"], ["Ngozi Eze", "Teacher", "English Language", "SSS1, SSS2"], ["Musa Ibrahim", "Teacher", "Economics, Government", "SSS2, SSS3"], ["Chinedu Okafor", "Teacher", "Mathematics, Chemistry", "SSS1, SSS2, SSS3"]] : type === "classes" ? classes.map((item, index) => [item, `${index + 1} class groups`, "2025/2026", String(state.students.filter((student) => student.className === item).length)]) : subjects.slice(0, 8).map((item, index) => [item, `${index + 1} topics`, index % 2 ? "Ngozi Eze" : "Chinedu Okafor", "Active"]);
-  const data = baseData.concat(state.directoryAdds[type]);
-  const headers = type === "teachers" ? ["Name", "Role", "Subjects", "Assigned Classes"] : type === "classes" ? ["Class", "Groups", "Academic Session", "Students"] : ["Subject", "Topics", "Subject Lead", "Status"];
-  return `${pageHeader(type === "teachers" ? "Teachers" : type === "classes" ? "Classes" : "Subjects & Topics", "Manage the academic structure used by assessments and interventions.", `<button class="btn btn-primary" data-action="add-directory" data-directory="${type}">＋ Add ${type === "teachers" ? "Teacher" : type === "classes" ? "Class" : "Subject"}</button>`)}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${type === "teachers" ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}<th>Action</th></tr></thead><tbody>${data.map((row) => `<tr>${row.map((cell, index) => `<td class="${index === 0 ? "primary-text" : ""}">${cell}</td>`).join("")}<td><button class="link-action" data-action="view-directory" data-directory="${type}" data-name="${esc(row[0])}">View</button><button class="link-action" data-action="edit-directory" data-directory="${type}" data-name="${esc(row[0])}">Edit</button></td></tr>`).join("")}</tbody></table></div></section>`;
+  const isTeachers = type === "teachers";
+  const data = isTeachers
+    ? state.users.filter((user) => user.role === "TEACHER").map((user) => [user.name, user.email, user.subject || "", user.classes || "", String(state.students.filter((student) => student.teacherId === user.id).length)])
+    : type === "classes"
+      ? classes.map((item) => [item, String(state.students.filter((student) => student.className === item).length)])
+      : subjects.map((item) => [item]);
+  const headers = isTeachers ? ["Name", "Email", "Subject", "Assigned Classes", "Assigned Students"] : type === "classes" ? ["Class", "Students"] : ["Subject"];
+  const title = isTeachers ? "Teachers" : type === "classes" ? "Classes" : "Subjects & Topics";
+  const action = isTeachers ? '<button class="btn btn-primary" data-action="add-directory" data-directory="teachers">＋ Add Teacher</button>' : "";
+  return `${pageHeader(title, isTeachers ? "Manage teacher accounts and class assignments." : "Available curriculum options.", action)}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${isTeachers ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${data.length ? data.map((row) => `<tr>${row.map((cell, index) => `<td class="${index === 0 ? "primary-text" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}">No ${isTeachers ? "teachers have been added" : "records"} yet.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function render() {
@@ -387,7 +380,7 @@ function bindPage() {
   const page = pageName();
   document.querySelectorAll("[data-route]").forEach((element) => element.addEventListener("click", () => {
     const route = element.dataset.route;
-    if (route === "student-details") go(`student-details/${element.dataset.id}`);
+    if (route === "student-details") go(`student-details/${encodeURIComponent(element.dataset.id)}`);
     else if (route === "record-scores") go(`record-scores/${element.dataset.id}`);
     else if (route === "create-intervention" && element.dataset.student) go(`create-intervention?student=${element.dataset.student}`);
     else go(route);
@@ -415,7 +408,9 @@ function handleAction(action, element) {
   if (action === "sign-out") { sessionStorage.removeItem("ait-auth"); sessionStorage.removeItem("ait-role"); authView = "login"; render(); }
   if (action === "print-page") { window.print(); }
   if (action === "toggle-password") {
-    const passwordInput = document.getElementById("login-password") || document.getElementById("register-password");
+    const passwordInput = document.getElementById("login-password") || document.getElementById("setup-password");
+      if (action === "sign-out") { sessionStorage.removeItem("ait-auth"); sessionStorage.removeItem("ait-role"); sessionStorage.removeItem("ait-token"); authView = "login"; render(); }
+      if (action === "retry-setup-status") checkSetupStatus();
     if (!passwordInput) return;
     const visible = passwordInput.type === "text";
     passwordInput.type = visible ? "password" : "text";
@@ -424,19 +419,17 @@ function handleAction(action, element) {
     element.setAttribute("aria-label", visible ? "Show password" : "Hide password");
     element.title = visible ? "Show password" : "Hide password";
   }
-  if (state.role === "teacher" && ["add-student", "edit-student", "add-directory", "edit-directory"].includes(action)) return showToast("This feature is available to Super Admins only.");
+  if (state.role === "teacher" && ["add-student", "edit-student", "add-directory"].includes(action)) return showToast("This feature is available to Super Admins only.");
   if (action === "clear-filters") { document.querySelectorAll(".filter-bar input").forEach((input) => { input.value = ""; }); document.querySelectorAll(".filter-bar select, .report-filters select").forEach((select) => { select.value = ""; }); bindPage(); }
   if (action === "add-student") openStudentModal();
   if (action === "edit-student") openStudentModal(studentById(element.dataset.id || pageParam()));
   if (action === "view-assessment") { const a = assessmentById(element.dataset.id); showToast(`${a.name} · ${a.subject} · ${a.max} marks`); }
   if (action === "record-follow-up") openFollowUpModal(interventionById(element.dataset.id));
-  if (action === "not-available") showToast("This demo keeps this directory read-only.");
   if (action === "add-directory") openDirectoryModal(element.dataset.directory);
   if (action === "edit-directory") openDirectoryModal(element.dataset.directory, element.dataset.name);
   if (action === "view-directory") showToast(`${element.dataset.name} details opened.`);
   if (action === "clear-directory") { const input = document.getElementById("directory-search"); if (input) input.value = ""; document.querySelectorAll(".table-wrap tbody tr").forEach((row) => { row.hidden = false; }); }
   if (action === "apply-report") showToast("Report filters applied.");
-  if (action === "show-register") { authView = "register"; render(); }
   if (action === "forgot-password") { authView = "forgot"; render(); }
   if (action === "back-to-login") { authView = "login"; render(); }
 }
@@ -470,7 +463,7 @@ async function saveScores(event) {
     try {
       const payload = {
         assessmentId: assessment.id,
-        scores: roster.map((student) => ({ studentId: student.id, score: Number(data[student.id]) }))
+        scores: roster.map((student) => ({ studentId: student.dbId, score: Number(data[student.id]) }))
       };
       await apiRequest("/results", { method: "POST", body: JSON.stringify(payload) });
       await loadRealData();
@@ -496,7 +489,7 @@ async function saveIntervention(event) {
       await apiRequest("/interventions", {
         method: "POST",
         body: JSON.stringify({
-          studentId,
+          studentId: studentById(studentId)?.dbId || studentId,
           subject: data.subject,
           topic: data.topic,
           assessmentId: data.assessmentId || null,
@@ -529,36 +522,27 @@ function updateScoreRow(event) {
 }
 
 function openDirectoryModal(type, existingName = "") {
-  const labels = { teachers: ["Teacher", "Full Name", "Subject Area", "Assigned Classes"], classes: ["Class", "Class Name", "Academic Session", "Student capacity"], subjects: ["Subject", "Subject Name", "Subject Lead", "Topic count"] };
-  const [singular, nameLabel, detailLabel, extraLabel] = labels[type];
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
-  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${existingName ? "Edit" : "Add"} ${singular}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="directory-form"><div class="field"><label>${nameLabel} *</label><input name="name" required value="${esc(existingName)}"></div><div class="field"><label>${detailLabel} *</label><input name="detail" required placeholder="${type === "teachers" ? "e.g. Mathematics, Physics" : type === "classes" ? "e.g. SSS2" : "e.g. Amina Bello"}"></div><div class="field"><label>${extraLabel}</label><input name="extra" placeholder="${type === "teachers" ? "e.g. SSS1, SSS2" : type === "classes" ? "e.g. 40" : "e.g. 8"}"></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save ${singular}</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Add Teacher</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="directory-form"><div class="field"><label>Full Name *</label><input name="name" required></div><div class="field"><label>School Email *</label><input name="email" type="email" required></div><div class="field"><label>Temporary Password *</label><input name="password" type="password" required minlength="8"></div><div class="field"><label>Subject Area *</label><input name="subject" required></div><div class="field"><label>Assigned Classes</label><input name="classes" placeholder="e.g. SSS1, SSS2"></div><div class="form-actions"><button class="btn btn-primary" type="submit">Create Teacher Account</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
-  modal.querySelector("form").addEventListener("submit", (event) => {
+  modal.querySelector("form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
-    if (existingName) {
-      const item = state.directoryAdds[type].find((entry) => entry[0] === existingName);
-      if (item) { item[0] = data.name; item[1] = data.detail; item[2] = data.extra || item[2]; }
-      else {
-        const row = type === "teachers" ? [data.name, "Teacher", data.detail, data.extra || "Assigned classes pending"] : type === "classes" ? [data.name, "1 class group", session, data.extra || "0"] : [data.name, data.extra || "0 topics", data.detail, "Active"];
-        state.directoryAdds[type].push(row);
-      }
-      showToast(`${singular} updated successfully.`);
-    } else {
-      const row = type === "teachers" ? [data.name, "Teacher", data.detail, data.extra || "Assigned classes pending"] : type === "classes" ? [data.name, "1 class group", session, data.extra || "0"] : [data.name, data.extra || "0 topics", data.detail, "Active"];
-      state.directoryAdds[type].push(row);
-      showToast(`${singular} added successfully.`);
+    try {
+      await apiRequest("/teachers", { method: "POST", body: JSON.stringify(data) });
+      await loadRealData();
+      modal.remove();
+      showToast("Teacher account created successfully.");
+    } catch (error) {
+      showToast(error.message || "Unable to create teacher account.");
     }
-    modal.remove();
-    render();
   });
 }
 
 function openStudentModal(student = null) {
-  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${student ? "Edit Student" : "Add Student"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="student-modal-form"><div class="form-grid"><div class="field"><label>Student ID *</label><input name="id" required value="${student?.id || `ST-2025-00${state.students.length + 1}`}" ${student ? "readonly" : ""}></div><div class="field"><label>Full Name *</label><input name="name" required value="${student?.name || ""}"></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes, student?.className)}</select></div><div class="field"><label>Academic Session *</label><select name="session" required>${selectOptions([session], student?.session || session)}</select></div><div class="field"><label>Gender</label><select name="gender">${selectOptions(["Female", "Male"], student?.gender || "")}</select></div><div class="field"><label>Status</label><select name="status">${selectOptions(["Active", "Inactive"], student?.status || "Active")}</select></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Student</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); if (student) Object.assign(student, data); else state.students.push(data); modal.remove(); render(); showToast(student ? "Student updated successfully." : "Student added successfully."); });
+  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${student ? "Edit Student" : "Add Student"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="student-modal-form"><div class="form-grid"><div class="field"><label>Student ID *</label><input name="studentId" required value="${esc(student?.id || "")}" ${student ? "readonly" : ""}></div><div class="field"><label>Full Name *</label><input name="name" required value="${esc(student?.name || "")}"></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes, student?.className || "")}</select></div><div class="field"><label>Academic Session *</label><input name="session" required value="${esc(student?.session || session)}"></div><div class="field"><label>Gender</label><select name="gender">${selectOptions(["Female", "Male"], student?.gender || "")}</select></div><div class="field"><label>Status</label><select name="status">${selectOptions(["Active", "Inactive"], student?.status || "Active")}</select></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Student</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); try { const endpoint = student ? `/students/${encodeURIComponent(student.id)}` : "/students"; await apiRequest(endpoint, { method: student ? "PUT" : "POST", body: JSON.stringify(data) }); await loadRealData(); modal.remove(); go("students"); showToast(student ? "Student updated successfully." : "Student added successfully."); } catch (error) { showToast(error.message || `Unable to ${student ? "update" : "add"} student.`); } });
 }
 function openFollowUpModal(intervention) {
   const student = studentById(intervention.studentId), modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Record Follow-Up</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${student.name}</strong> · ${intervention.subject} · Previous percentage: ${intervention.previous}%</div><form id="follow-modal-form"><div class="field"><label>Follow-Up Percentage *</label><input name="score" type="number" min="0" max="100" required placeholder="Enter percentage"></div><div class="field"><label>Outcome *</label><select name="outcome" required>${selectOptions(["Improved", "Needs Further Support", "No Significant Improvement"])}</select></div><div class="field"><label>Follow-Up Date *</label><input name="date" type="date" required></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Follow-Up</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); const score = Number(data.score); if (score < 0 || score > 100) return showToast("Enter a percentage between 0 and 100."); state.followUps = state.followUps.filter((item) => item.interventionId !== intervention.id); state.followUps.push({ interventionId: intervention.id, score, outcome: data.outcome, date: data.date }); intervention.status = "Completed"; intervention.followUpScore = score; intervention.outcome = data.outcome; modal.remove(); render(); showToast("Follow-up result saved successfully."); });
@@ -570,6 +554,23 @@ document.addEventListener("click", (event) => {
   if (target && !sessionStorage.getItem("ait-auth")) handleAction(target.dataset.action, target);
 });
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "setup-admin-form") {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    try {
+      const response = await apiRequest("/auth/setup-admin", { method: "POST", body: JSON.stringify(data) });
+      needsAdminSetup = false;
+      state.role = "admin";
+      state.user = { name: response.user.name, role: "Super Admin", initials: initials(response.user.name) };
+      sessionStorage.setItem("ait-auth", "true");
+      sessionStorage.setItem("ait-role", "admin");
+      sessionStorage.setItem("ait-token", response.token);
+      go("dashboard");
+      await loadRealData();
+    } catch (error) {
+      showToast(error.message || "Unable to create administrator account.");
+    }
+  }
   if (event.target.id === "login-form") {
     event.preventDefault();
     const email = event.target.querySelector("#login-email").value.trim().toLowerCase();
@@ -597,35 +598,6 @@ document.addEventListener("submit", async (event) => {
       showToast(error.message || "Unable to sign in.");
     }
   }
-  if (event.target.id === "teacher-register-form") {
-    event.preventDefault();
-    const form = event.target;
-    const name = form.querySelector("#register-name").value.trim();
-    const email = form.querySelector("#register-email").value.trim().toLowerCase();
-    const password = form.querySelector("#register-password").value;
-    const subject = form.querySelector("#register-subject").value.trim();
-    const classesValue = form.querySelector("#register-classes").value.trim();
-    if (!name || !email || !password || !subject) return showToast("Please complete all required teacher details.");
-    try {
-      const response = await apiRequest("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ name, email, password, role: "TEACHER", subject, classes: classesValue })
-      });
-      sessionStorage.setItem("ait-auth", "true");
-      sessionStorage.setItem("ait-role", "teacher");
-      sessionStorage.setItem("ait-token", response.token);
-      state.role = "teacher";
-      state.user = { name: response.user.name, role: "Teacher", initials: initials(response.user.name) };
-      authView = "login";
-      form.reset();
-      await loadRealData();
-      showToast("Teacher account created successfully.");
-      go("dashboard");
-      render();
-    } catch (error) {
-      showToast(error.message || "Unable to create teacher account.");
-    }
-  }
   if (event.target.id === "forgot-password-form") {
     event.preventDefault();
     const email = event.target.querySelector("#reset-email").value.trim();
@@ -638,5 +610,7 @@ if (sessionStorage.getItem("ait-auth") && sessionStorage.getItem("ait-token")) {
   state.role = sessionStorage.getItem("ait-role") === "teacher" ? "teacher" : "admin";
   state.user = { name: "Loading profile...", role: state.role === "admin" ? "Super Admin" : "Teacher", initials: "LD" };
   loadRealData();
+} else {
+  render();
+  checkSetupStatus();
 }
-render();

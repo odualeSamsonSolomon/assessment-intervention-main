@@ -1,7 +1,9 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
+import { rebalanceStudentsAcrossTeachers } from '../utils/student-assignment.js';
 
 const hashPassword = (password: string) => createHash('sha256').update(password).digest('hex');
 
@@ -10,9 +12,19 @@ const signToken = (payload: { id: string; email: string; name: string; role: str
   return jwt.sign(payload, secret, { expiresIn: '7d' });
 };
 
-export const registerUser = async (req: Request, res: Response) => {
+export const getSetupStatus = async (_req: Request, res: Response) => {
   try {
-    const { name, email, password, role, subject, classes } = req.body ?? {};
+    const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
+    return res.json({ needsAdminSetup: !admin });
+  } catch (error) {
+    console.error('getSetupStatus error:', error);
+    return res.status(500).json({ message: 'Unable to check setup status.' });
+  }
+};
+
+export const setupAdmin = async (req: Request, res: Response) => {
+  try {
+    const { name, email, password } = req.body ?? {};
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required.' });
@@ -23,43 +35,78 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Please provide a valid email address.' });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existingUser) {
-      return res.status(409).json({ message: 'A user with that email already exists.' });
-    }
+    const createdUser = await prisma.$transaction(async (transaction) => {
+      const admin = await transaction.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
+      if (admin) throw new Error('ADMIN_ALREADY_EXISTS');
+      return transaction.user.create({
+        data: {
+          name: String(name).trim(),
+          email: normalizedEmail,
+          password: hashPassword(String(password)),
+          role: 'ADMIN',
+          subject: 'Administration',
+          classes: 'All classes',
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    const createdUser = await prisma.user.create({
-      data: {
-        name: String(name).trim(),
-        email: normalizedEmail,
-        password: hashPassword(String(password)),
-        role: (role === 'ADMIN' ? 'ADMIN' : 'TEACHER') as 'ADMIN' | 'TEACHER',
-        subject: subject ? String(subject) : null,
-        classes: classes ? String(classes) : null,
-      },
-    });
-
-    const token = signToken({
-      id: createdUser.id,
-      email: createdUser.email,
-      name: createdUser.name,
-      role: createdUser.role,
-    });
-
+    const token = signToken({ id: createdUser.id, email: createdUser.email, name: createdUser.name, role: createdUser.role });
     return res.status(201).json({
       token,
-      user: {
-        id: createdUser.id,
-        name: createdUser.name,
-        email: createdUser.email,
-        role: createdUser.role,
-        subject: createdUser.subject,
-        classes: createdUser.classes,
-      },
+      user: { id: createdUser.id, name: createdUser.name, email: createdUser.email, role: createdUser.role },
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'ADMIN_ALREADY_EXISTS') {
+      return res.status(409).json({ message: 'An administrator account already exists.' });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ message: 'A user with that email already exists.' });
+    }
     console.error('registerUser error:', error);
-    return res.status(500).json({ message: 'Unable to create user account.' });
+    return res.status(500).json({ message: 'Unable to create administrator account.' });
+  }
+};
+
+export const createTeacher = async (req: Request, res: Response) => {
+  try {
+    const { name, email, password, subject, classes } = req.body ?? {};
+    if (!name || !email || !password || !subject) {
+      return res.status(400).json({ message: 'Name, email, password and subject are required.' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Please provide a valid email address.' });
+    }
+
+    const teacher = await prisma.$transaction(async (transaction) => {
+      const createdTeacher = await transaction.user.create({
+        data: {
+          name: String(name).trim(),
+          email: normalizedEmail,
+          password: hashPassword(String(password)),
+          role: 'TEACHER',
+          subject: String(subject).trim(),
+          classes: classes ? String(classes).trim() : null,
+        },
+      });
+      await rebalanceStudentsAcrossTeachers(transaction);
+      return createdTeacher;
+    });
+    return res.status(201).json({
+      id: teacher.id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      subject: teacher.subject,
+      classes: teacher.classes,
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ message: 'A user with that email already exists.' });
+    }
+    console.error('createTeacher error:', error);
+    return res.status(500).json({ message: 'Unable to create teacher account.' });
   }
 };
 

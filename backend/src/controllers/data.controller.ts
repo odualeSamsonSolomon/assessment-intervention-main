@@ -1,10 +1,11 @@
 import type { Request, Response } from 'express';
+import { randomInt } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 
 export const getDashboardData = async (req: Request & { user?: { id: string; role: string } }, res: Response) => {
   try {
     const [students, assessments, results, interventions, followUps, users] = await Promise.all([
-      prisma.student.findMany({ orderBy: { name: 'asc' } }),
+      prisma.student.findMany({ include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } }),
       prisma.assessment.findMany({ orderBy: { date: 'desc' } }),
       prisma.result.findMany({ include: { assessment: true, student: true } }),
       prisma.intervention.findMany({ include: { student: true, followUp: true } }),
@@ -27,7 +28,7 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
         studentId: result.studentId,
         score: result.score,
         assessment: { id: result.assessment.id, name: result.assessment.name, subject: result.assessment.subject, max: result.assessment.maxScore },
-        student: { id: result.student.id, name: result.student.name, className: result.student.className },
+        student: { id: result.student.id, studentId: result.student.studentId, name: result.student.name, className: result.student.className },
       })),
       interventions: interventions.map((intervention) => ({
         id: intervention.id,
@@ -46,7 +47,7 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
         notes: intervention.notes,
         outcome: intervention.outcome,
         followUpScore: intervention.followUpScore,
-        student: { id: intervention.student.id, name: intervention.student.name, className: intervention.student.className },
+        student: { id: intervention.student.id, studentId: intervention.student.studentId, name: intervention.student.name, className: intervention.student.className },
       })),
       followUps: followUps.map((entry) => ({
         id: entry.id,
@@ -79,7 +80,7 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
 };
 
 export const getStudents = async (_req: Request, res: Response) => {
-  const students = await prisma.student.findMany({ orderBy: { name: 'asc' } });
+  const students = await prisma.student.findMany({ include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } });
   return res.json(students);
 };
 
@@ -90,6 +91,13 @@ export const createStudent = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Student ID, name, class and session are required.' });
     }
 
+    const teachers = await prisma.user.findMany({
+      where: { role: 'TEACHER' },
+      select: { id: true, _count: { select: { students: true } } },
+    });
+    const minimumLoad = teachers.length ? Math.min(...teachers.map((teacher) => teacher._count.students)) : 0;
+    const leastLoadedTeachers = teachers.filter((teacher) => teacher._count.students === minimumLoad);
+    const teacher = leastLoadedTeachers.length ? leastLoadedTeachers[randomInt(leastLoadedTeachers.length)] : null;
     const student = await prisma.student.create({
       data: {
         studentId: String(studentId),
@@ -98,13 +106,47 @@ export const createStudent = async (req: Request, res: Response) => {
         gender: gender ? String(gender) : null,
         status: status ? String(status) : 'Active',
         session: String(session),
+        teacherId: teacher?.id ?? null,
       },
+      include: { teacher: { select: { id: true, name: true } } },
     });
 
     return res.status(201).json(student);
   } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return res.status(409).json({ message: 'A student with that ID already exists.' });
+    }
     console.error('createStudent error:', error);
     return res.status(500).json({ message: 'Unable to create student record.' });
+  }
+};
+
+export const updateStudent = async (req: Request, res: Response) => {
+  try {
+    const { name, className, gender, status, session } = req.body ?? {};
+    if (!name || !className || !session) {
+      return res.status(400).json({ message: 'Student name, class and session are required.' });
+    }
+
+    const student = await prisma.student.update({
+      where: { studentId: String(req.params.studentId) },
+      data: {
+        name: String(name),
+        className: String(className),
+        gender: gender ? String(gender) : null,
+        status: status ? String(status) : 'Active',
+        session: String(session),
+      },
+      include: { teacher: { select: { id: true, name: true } } },
+    });
+
+    return res.json(student);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
+      return res.status(404).json({ message: 'Student record not found.' });
+    }
+    console.error('updateStudent error:', error);
+    return res.status(500).json({ message: 'Unable to update student record.' });
   }
 };
 
@@ -153,7 +195,7 @@ export const getResults = async (_req: Request, res: Response) => {
     studentId: result.studentId,
     score: result.score,
     assessment: { id: result.assessment.id, name: result.assessment.name, subject: result.assessment.subject, max: result.assessment.maxScore },
-    student: { id: result.student.id, name: result.student.name, className: result.student.className },
+    student: { id: result.student.id, studentId: result.student.studentId, name: result.student.name, className: result.student.className },
   })));
 };
 
@@ -208,7 +250,7 @@ export const getInterventions = async (_req: Request, res: Response) => {
     notes: item.notes,
     outcome: item.outcome,
     followUpScore: item.followUpScore,
-    student: { id: item.student.id, name: item.student.name, className: item.student.className },
+    student: { id: item.student.id, studentId: item.student.studentId, name: item.student.name, className: item.student.className },
     followUpRecord: item.followUp ? { id: item.followUp.id, score: item.followUp.score, outcome: item.followUp.outcome, date: item.followUp.date } : null,
   })));
 };

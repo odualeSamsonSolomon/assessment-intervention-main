@@ -10,8 +10,7 @@ INT/
 │   ├── prisma/
 │   ├── src/
 │   ├── .env
-│   ├── package.json
-│   └── seed.mjs
+│   └── package.json
 ├── frontend/
 │   ├── app.js
 │   ├── index.html
@@ -46,56 +45,11 @@ http://localhost:5000/api
 
 Open the `frontend/index.html` file in a browser, or run it with a local web server such as Live Server in VS Code.
 
-This is not a mock demo state; the app expects a real backend service and real database data to be running before it loads school records.
+The app loads records from the backend. A fresh database has no users, teachers, students, assessments, or results. On first launch, create the initial administrator account; the administrator can then add teacher accounts and students.
 
-## How to change the school data
+## Add school records
 
-The default names and records are stored in the frontend configuration at the top of [frontend/app.js](frontend/app.js).
-
-### Change the school name and admin data
-
-At the top of the file, update this section:
-
-```js
-const appConfig = {
-  schoolName: "Assessment-to-Intervention Tracking System",
-  shortSchoolName: "AIT",
-  academicSession: "2025/2026",
-  admin: {
-    name: "Your Admin Name"
-  },
-  teacher: {
-    name: "Your Teacher Name"
-  }
-};
-```
-
-Replace the values with your actual school names for a real presentation or production use case.
-
-### Change the student names and records
-
-Edit the `state.students` array in [frontend/app.js](frontend/app.js). Each student object looks like this:
-
-```js
-{ id: "ST-2025-001", name: "Amaka Nwosu", className: "SSS2", gender: "Female", status: "Active", session }
-```
-
-Update:
-- `name` to the student's real name
-- `id` to the official student ID
-- `className` to the correct class
-- `gender`, `status`, and `session` if needed
-
-### Change the teachers, subjects, classes, and assessment settings
-
-You can also edit these arrays in the same file:
-
-```js
-const subjects = ["Mathematics", "English Language", ...];
-const classes = ["SSS1", "SSS2", "SSS3"];
-const assessmentTypes = ["Class Test", "Quiz", "Assignment", ...];
-const terms = ["First Term", "Second Term", "Third Term"];
-```
+On a fresh installation, open the frontend with the backend running and create the first administrator account. Sign in as that administrator, then add teacher accounts and students from their respective pages. New students are assigned to a least-loaded teacher, with random selection when loads are tied. Adding a teacher redistributes the existing students randomly and evenly across the teacher roster; the teacher list shows each assigned-student count.
 
 ## Backend configuration
 
@@ -117,12 +71,7 @@ cd backend
 npx prisma db push
 ```
 
-Then seed the initial admin and demo data if needed:
-
-```bash
-cd backend
-node seed.mjs
-```
+No seed command is used. The database remains empty until records are created through the application.
 
 ## Typical workflow
 
@@ -135,4 +84,4 @@ node seed.mjs
 
 ## Notes
 
-This is a real working project setup, not a placeholder demo. Replace the default names and records with your actual school information before using it in production or for a classroom workflow.
+Existing database records are not deleted by these setup steps. Use an empty database for a clean first-run setup.

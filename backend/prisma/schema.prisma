@@ -24,6 +24,7 @@ model User {
   updatedAt   DateTime      @updatedAt
   assessments Assessment[]
   interventions Intervention[]
+  students     Student[]      @relation("AssignedTeacher")
 }
 
 model Student {
@@ -36,6 +37,8 @@ model Student {
   session       String
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  teacherId     String?
+  teacher       User?         @relation("AssignedTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
   results       Result[]
   interventions Intervention[]
 }
