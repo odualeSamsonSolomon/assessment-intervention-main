@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createTeacher, getCurrentUser, getSetupStatus, loginUser, setupAdmin } from '../controllers/auth.controller.js';
-import { createAssessment, createIntervention, createStudent, getAssessments, getDashboardData, getInterventions, getResults, getStudents, saveFollowUp, saveScores, updateStudent } from '../controllers/data.controller.js';
+import { addStandardSubjects, createAssessment, createIntervention, createStudent, createSubject, createTopic, deleteSubject, deleteTopic, getAssessments, getDashboardData, getInterventions, getResults, getStudents, getSubjects, saveFollowUp, saveScores, updateStudent, updateSubject, updateTopic } from '../controllers/data.controller.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -19,6 +19,14 @@ router.get('/students', requireAuth, getStudents);
 router.post('/students', requireAuth, requireAdmin, createStudent);
 router.put('/students/:studentId', requireAuth, requireAdmin, updateStudent);
 router.post('/teachers', requireAuth, requireAdmin, createTeacher);
+router.get('/subjects', requireAuth, getSubjects);
+router.post('/subjects', requireAuth, requireAdmin, createSubject);
+router.post('/subjects/standard', requireAuth, requireAdmin, addStandardSubjects);
+router.put('/subjects/:subjectId', requireAuth, requireAdmin, updateSubject);
+router.delete('/subjects/:subjectId', requireAuth, requireAdmin, deleteSubject);
+router.post('/subjects/:subjectId/topics', requireAuth, requireAdmin, createTopic);
+router.put('/topics/:topicId', requireAuth, requireAdmin, updateTopic);
+router.delete('/topics/:topicId', requireAuth, requireAdmin, deleteTopic);
 router.get('/assessments', requireAuth, getAssessments);
 router.post('/assessments', requireAuth, createAssessment);
 router.get('/results', requireAuth, getResults);

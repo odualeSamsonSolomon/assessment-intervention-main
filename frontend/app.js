@@ -5,8 +5,8 @@ const appConfig = {
   assessmentThreshold: 60
 };
 
-const subjects = ["Mathematics", "English Language", "Economics", "Biology", "Chemistry", "Physics", "Government", "Literature in English", "Geography", "Computer Studies", "Agricultural Science", "Civic Education", "Financial Accounting", "Commerce"];
 const classes = ["SSS1", "SSS2", "SSS3"];
+let subjects = [];
 const assessmentTypes = ["Class Test", "Quiz", "Assignment", "Mid-Term Test", "School Examination"];
 const terms = ["First Term", "Second Term", "Third Term"];
 const session = appConfig.academicSession;
@@ -20,11 +20,14 @@ const state = {
   results: [],
   interventions: [],
   followUps: [],
-  users: []
+  users: [],
+  subjects: [],
+  reportFilters: { session: "", term: "", className: "", subject: "", type: "" }
 };
 let authView = "login";
 let needsAdminSetup = null;
 let setupStatusError = false;
+let rosterRefreshTimer = null;
 const API_BASE = "http://localhost:5000/api";
 const apiRequest = async (path, options = {}) => {
   const token = sessionStorage.getItem("ait-token");
@@ -56,27 +59,37 @@ const checkSetupStatus = async () => {
 };
 const normalizeRole = (role) => String(role || "").toUpperCase() === "ADMIN" ? "admin" : "teacher";
 const fallbackUser = { name: "Authenticated User", role: "Super Admin", initials: "AU" };
+const mapStudent = (student) => ({
+  id: student.studentId || student.id,
+  dbId: student.id,
+  name: student.name,
+  className: student.className,
+  teacherId: student.teacherId || null,
+  teacherName: student.teacher?.name || "Unassigned",
+  gender: student.gender || "Not specified",
+  status: student.status || "Active",
+  session: student.session || session
+});
 const loadRealData = async () => {
   if (!sessionStorage.getItem("ait-token")) return;
   try {
-    const data = await apiRequest("/dashboard");
+    let data = await apiRequest("/dashboard");
+    if (String(data.user?.role || "").toUpperCase() === "ADMIN" && !data.subjects?.length) {
+      try {
+        await apiRequest("/subjects/standard", { method: "POST" });
+        data = await apiRequest("/dashboard");
+      } catch (error) {
+        console.warn("Could not load the standard subject catalog:", error);
+      }
+    }
     state.role = normalizeRole(data.user?.role || state.role || "admin");
     state.user = data.user ? {
+      id: data.user.id,
       name: data.user.name,
       role: state.role === "admin" ? "Super Admin" : "Teacher",
       initials: initials(data.user.name)
     } : fallbackUser;
-    state.students = Array.isArray(data.students) ? data.students.map((student) => ({
-      id: student.studentId || student.id,
-      dbId: student.id,
-      name: student.name,
-      className: student.className,
-      teacherId: student.teacherId || null,
-      teacherName: student.teacher?.name || "Unassigned",
-      gender: student.gender || "Not specified",
-      status: student.status || "Active",
-      session: student.session || "2025/2026"
-    })) : [];
+    state.students = Array.isArray(data.students) ? data.students.map(mapStudent) : [];
     state.assessments = Array.isArray(data.assessments) ? data.assessments.map((assessment) => ({
       id: assessment.id,
       name: assessment.name,
@@ -119,6 +132,8 @@ const loadRealData = async () => {
       date: follow.date ? follow.date.slice(0, 10) : ""
     })) : [];
     state.users = Array.isArray(data.users) ? data.users : [];
+    state.subjects = Array.isArray(data.subjects) ? data.subjects : [];
+    subjects = state.subjects.map((subject) => subject.name);
     if (!sessionStorage.getItem("ait-auth")) sessionStorage.setItem("ait-auth", "true");
     render();
   } catch (error) {
@@ -134,6 +149,8 @@ const loadRealData = async () => {
     state.interventions = [];
     state.followUps = [];
     state.users = [];
+    state.subjects = [];
+    subjects = [];
     showToast("School backend is unavailable. Start the API service to load live data.");
     render();
   }
@@ -195,10 +212,7 @@ function loginView() {
   if (authView === "forgot") {
     return `<main class="login-shell"><section class="login-card">
       <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
-      <h2>Reset your password</h2><p class="intro">Enter the email address linked to your account and we will send a password reset link.</p>
-      <form id="forgot-password-form"><div class="field"><label for="reset-email">Username or Email</label><input id="reset-email" name="email" required type="email" placeholder="you@school.edu.ng"></div>
-        <button class="btn btn-primary btn-block" type="submit">Send Reset Link <span>→</span></button>
-      </form>
+      <h2>Password help</h2><p class="intro">Self-service password reset is not configured. Contact your school administrator to reset your account password.</p>
       <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
     </section></main>`;
   }
@@ -287,7 +301,7 @@ function renderAssessmentsTable() {
 }
 
 function createAssessmentView() {
-  return `${pageHeader("Create Assessment", "Set up an internal assessment before recording student scores.", '<button class="btn btn-secondary" data-route="assessments">Cancel</button>')}<section class="card form-card"><form id="assessment-form"><div class="form-grid"><div class="field"><label>Assessment Name *</label><input name="name" required placeholder="e.g. Algebra Class Test"></div><div class="field"><label>Assessment Type *</label><select name="type" required>${selectOptions(assessmentTypes)}</select></div><div class="field"><label>Subject *</label><select name="subject" required>${selectOptions(subjects)}</select></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes)}</select></div><div class="field"><label>Academic Session *</label><select name="session" required>${selectOptions([session], session)}</select></div><div class="field"><label>Term *</label><select name="term" required>${selectOptions(terms)}</select></div><div class="field"><label>Assessment Date *</label><input name="date" type="date" required></div><div class="field"><label>Maximum Score *</label><input name="max" type="number" min="1" required placeholder="e.g. 50"></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Assessment</button><button class="btn btn-secondary" type="button" data-route="assessments">Cancel</button></div></form></section>`;
+  return `${pageHeader("Create Assessment", "Set up an internal assessment before recording student scores.", '<button class="btn btn-secondary" data-route="assessments">Cancel</button>')}${state.subjects.length ? `<section class="card form-card"><form id="assessment-form"><div class="form-grid"><div class="field"><label>Assessment Name *</label><input name="name" required placeholder="e.g. Algebra Class Test"></div><div class="field"><label>Assessment Type *</label><select name="type" required>${selectOptions(assessmentTypes)}</select></div><div class="field"><label>Subject *</label><select name="subject" required>${selectOptions(state.subjects.map((subject) => subject.name))}</select></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes)}</select></div><div class="field"><label>Academic Session *</label><select name="session" required>${selectOptions([session], session)}</select></div><div class="field"><label>Term *</label><select name="term" required>${selectOptions(terms)}</select></div><div class="field"><label>Assessment Date *</label><input name="date" type="date" required></div><div class="field"><label>Maximum Score *</label><input name="max" type="number" min="1" required placeholder="e.g. 50"></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Assessment</button><button class="btn btn-secondary" type="button" data-route="assessments">Cancel</button></div></form></section>` : `<section class="card"><div class="card-body">${emptyState("Add a subject first", "Assessments need a subject. Add one here, then continue with the assessment.", "◈")}<div class="form-actions"><button class="btn btn-primary" type="button" data-action="add-subject">＋ Add Subject</button><button class="btn btn-secondary" type="button" data-route="assessments">Cancel</button></div></div></section>`}`;
 }
 
 function recordScoresView() {
@@ -298,18 +312,61 @@ function recordScoresView() {
 }
 
 function resultsView() {
-  return `${pageHeader("Results & Performance", "Review assessment results and identify students who may need support.", printButton("Print Results"))}<section class="card"><div class="filter-bar"><input class="search-input" id="results-search" placeholder="Search student, ID, subject or assessment"><select id="results-class">${selectOptions(classes, "", true)}</select><select id="results-subject">${selectOptions(subjects, "", true)}</select><select id="results-status"><option value="">All statuses</option><option>Needs Intervention</option><option>Satisfactory</option></select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div id="results-content"></div></section>`;
+  return `${pageHeader("Results & Performance", "Review assessment results and identify students who may need support.", printButton("Print Results"))}<section class="card"><div class="filter-bar"><input class="search-input" id="results-search" placeholder="Search student, ID, subject or assessment"><select id="results-class">${selectOptions(classes, "", true)}</select><select id="results-subject">${selectOptions(state.subjects.map((subject) => subject.name), "", true)}</select><select id="results-status"><option value="">All statuses</option><option>Needs Intervention</option><option>Satisfactory</option></select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div id="results-content"></div></section>`;
 }
 function renderResults() {
   const search = (document.getElementById("results-search")?.value || "").toLowerCase(), className = document.getElementById("results-class")?.value || "", subject = document.getElementById("results-subject")?.value || "", status = document.getElementById("results-status")?.value || "";
   const rows = state.results.map((result) => ({ result, student: studentById(result.studentId), assessment: assessmentById(result.assessmentId), pct: percent(result.score, assessmentById(result.assessmentId).max) })).filter((item) => (!search || `${item.student.name} ${item.student.id} ${item.assessment.subject} ${item.assessment.name}`.toLowerCase().includes(search)) && (!className || item.student.className === className) && (!subject || item.assessment.subject === subject) && (!status || statusFor(item.pct) === status));
+  const awaitingFirstResult = !status ? state.students.filter((student) => !state.results.some((result) => result.studentId === student.id) && (!search || `${student.name} ${student.id}`.toLowerCase().includes(search)) && (!className || student.className === className)) : [];
   const all = state.results.map((r) => percent(r.score, assessmentById(r.assessmentId).max));
-  document.getElementById("results-content").innerHTML = `<div class="card-body"><div class="report-summary"><div class="report-number"><span>Total Results</span><strong>${state.results.length}</strong></div><div class="report-number"><span>Average Percentage</span><strong>${all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : 0}%</strong></div><div class="report-number"><span>Needing Intervention</span><strong>${all.filter((value) => value < threshold).length}</strong></div></div></div>${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Assessment</th><th>Score</th><th>Percentage</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map(({ result, student, assessment, pct }) => `<tr><td><span class="primary-text">${student.name}</span><br><span class="muted">${student.id}</span></td><td>${student.className}</td><td>${assessment.subject}</td><td>${assessment.name}</td><td>${result.score} / ${assessment.max}</td><td>${pct}%</td><td>${badge(statusFor(pct))}</td><td><button class="link-action" data-route="student-details" data-id="${student.id}">View Student</button>${pct < threshold ? `<button class="link-action" data-route="create-intervention" data-student="${student.id}" data-assessment="${assessment.id}">Identify</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : emptyState(search || className || subject || status ? "No filter results" : "No results recorded", search || className || subject || status ? "Try changing or clearing your filters." : "Results will appear after scores are recorded.")}`;
+  document.getElementById("results-content").innerHTML = `<div class="card-body"><div class="report-summary"><div class="report-number"><span>Total Results</span><strong>${state.results.length}</strong></div><div class="report-number"><span>Average Percentage</span><strong>${all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : 0}%</strong></div><div class="report-number"><span>Needing Intervention</span><strong>${all.filter((value) => value < threshold).length}</strong></div></div></div>${awaitingFirstResult.length ? `<div class="card-header"><div><h3>Students Awaiting First Result</h3><p>${awaitingFirstResult.length} student${awaitingFirstResult.length === 1 ? "" : "s"} with no recorded scores</p></div></div><div class="table-wrap"><table><thead><tr><th>Student ID</th><th>Student Name</th><th>Class</th><th>Academic Session</th><th>Actions</th></tr></thead><tbody>${awaitingFirstResult.map((student) => `<tr><td class="primary-text">${esc(student.id)}</td><td>${esc(student.name)}</td><td>${esc(student.className)}</td><td>${esc(student.session)}</td><td><button class="link-action" data-route="student-details" data-id="${esc(student.id)}">View Student</button><button class="link-action" data-action="record-student-result" data-id="${esc(student.id)}">Record Result</button></td></tr>`).join("")}</tbody></table></div>` : ""}${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Assessment</th><th>Score</th><th>Percentage</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map(({ result, student, assessment, pct }) => `<tr><td><span class="primary-text">${student.name}</span><br><span class="muted">${student.id}</span></td><td>${student.className}</td><td>${assessment.subject}</td><td>${assessment.name}</td><td>${result.score} / ${assessment.max}</td><td>${pct}%</td><td>${badge(statusFor(pct))}</td><td><button class="link-action" data-route="student-details" data-id="${student.id}">View Student</button>${pct < threshold ? `<button class="link-action" data-route="create-intervention" data-student="${student.id}" data-assessment="${assessment.id}">Identify</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : emptyState(search || className || subject || status ? "No filter results" : "No results recorded", search || className || subject || status ? "Try changing or clearing your filters." : "Results will appear after scores are recorded.")}`;
   bindGeneratedActions(document.getElementById("results-content"));
 }
 
+function openStudentResultModal(studentId) {
+  const student = studentById(studentId);
+  if (!student) return showToast("Student not found. Refresh the page and try again.");
+  const assessments = state.assessments.filter((assessment) => assessment.className === student.className);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  const assessmentOptions = assessments.map((assessment) => `<option value="${esc(assessment.id)}">${esc(assessment.name)} · ${esc(assessment.subject)} · ${esc(assessment.term)}</option>`).join("");
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Record Result</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${esc(student.name)}</strong> · ${esc(student.id)} · ${esc(student.className)}</div>${assessments.length ? `<form id="student-result-form"><div class="field"><label>Assessment *</label><select name="assessmentId" required>${assessmentOptions}</select></div><div class="field"><label>Score *</label><input name="score" type="number" min="0" max="${assessments[0].max}" step="0.5" required></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Result</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form>` : `<div class="empty-state"><strong>No assessment for ${esc(student.className)}</strong><span>Create an assessment for this class before entering a score.</span><button class="btn btn-primary" type="button" data-create-assessment>Create Assessment</button></div>`}</div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("[data-create-assessment]")?.addEventListener("click", () => {
+    modal.remove();
+    go("create-assessment");
+  });
+  const form = modal.querySelector("#student-result-form");
+  if (!form) return;
+  const assessmentSelect = form.querySelector('[name="assessmentId"]');
+  const scoreInput = form.querySelector('[name="score"]');
+  assessmentSelect.addEventListener("change", () => {
+    scoreInput.max = String(assessmentById(assessmentSelect.value).max);
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const assessment = assessmentById(assessmentSelect.value);
+    const score = Number(scoreInput.value);
+    if (!assessment || !Number.isFinite(score) || score < 0 || score > assessment.max) {
+      return showToast(`Enter a score between 0 and ${assessment?.max ?? "the assessment maximum"}.`);
+    }
+    try {
+      await apiRequest("/results", {
+        method: "POST",
+        body: JSON.stringify({ assessmentId: assessment.id, scores: [{ studentId: student.dbId, score }] }),
+      });
+      await loadRealData();
+      modal.remove();
+      showToast("Student result saved successfully.");
+    } catch (error) {
+      showToast(error.message || "Unable to save student result.");
+    }
+  });
+}
+
 function interventionsView() {
-  return `${pageHeader("Interventions", "Track academic support actions from low result to outcome.", '<button class="btn btn-primary" data-route="create-intervention">＋ Create Intervention</button>')}<section class="card"><div class="filter-bar"><input class="search-input" id="intervention-search" placeholder="Search student, ID, subject or topic"><select id="intervention-class">${selectOptions(classes, "", true)}</select><select id="intervention-status">${selectOptions(["Active", "Follow-up Due", "Completed"], "", true)}</select><select id="intervention-subject">${selectOptions(subjects, "", true)}</select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div id="interventions-content"></div></section>`;
+  return `${pageHeader("Interventions", "Track academic support actions from low result to outcome.", '<button class="btn btn-primary" data-route="create-intervention">＋ Create Intervention</button>')}<section class="card"><div class="filter-bar"><input class="search-input" id="intervention-search" placeholder="Search student, ID, subject or topic"><select id="intervention-class">${selectOptions(classes, "", true)}</select><select id="intervention-status">${selectOptions(["Active", "Follow-up Due", "Completed"], "", true)}</select><select id="intervention-subject">${selectOptions(state.subjects.map((subject) => subject.name), "", true)}</select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div id="interventions-content"></div></section>`;
 }
 function renderInterventions() {
   const search = (document.getElementById("intervention-search")?.value || "").toLowerCase(), className = document.getElementById("intervention-class")?.value || "", status = document.getElementById("intervention-status")?.value || "", subject = document.getElementById("intervention-subject")?.value || "";
@@ -333,22 +390,49 @@ function renderFollowUps() {
   bindGeneratedActions(document.getElementById("follow-content"));
 }
 
-function reportsView() {
+function legacyReportsView() {
   const avg = state.results.length ? Math.round(state.results.reduce((sum, r) => sum + percent(r.score, assessmentById(r.assessmentId).max), 0) / state.results.length) : 0;
   return `${pageHeader("Reports", "Simple reports for performance, intervention activity, and improvement.", "")}<div class="report-stack"><section class="card report-filters"><div class="card-header"><div><h3>Report Filters</h3><p>Apply filters to review a focused report view.</p></div><div class="actions"><button class="btn btn-primary btn-sm" data-action="apply-report">Apply Filters</button><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear Filters</button></div></div><div class="card-body"><div class="form-grid"><div class="field"><label>Academic Session</label><select>${selectOptions([session], session)}</select></div><div class="field"><label>Term</label><select>${selectOptions(terms, "", true)}</select></div><div class="field"><label>Class</label><select>${selectOptions(classes, "", true)}</select></div><div class="field"><label>Subject</label><select>${selectOptions(subjects, "", true)}</select></div><div class="field"><label>Assessment Type</label><select>${selectOptions(assessmentTypes, "", true)}</select></div></div></div></section><section class="card"><div class="card-header"><div><h3>Student Performance</h3><p>Average result across recorded assessments</p></div><button class="section-link" data-route="results">View Details →</button></div><div class="card-body"><div class="report-summary"><div class="report-number"><span>Results Recorded</span><strong>${state.results.length}</strong></div><div class="report-number"><span>Average Percentage</span><strong>${avg}%</strong></div><div class="report-number"><span>Needs Intervention</span><strong>${state.results.filter((r) => percent(r.score, assessmentById(r.assessmentId).max) < threshold).length}</strong></div></div></div></section><div class="grid-2"><section class="card"><div class="card-header"><div><h3>Students Needing Intervention</h3><p>Performance below ${threshold}%</p></div></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Subject</th><th>Topic</th><th>Percentage</th><th>Status</th></tr></thead><tbody>${state.interventions.map((item) => { const student = studentById(item.studentId); return `<tr><td class="primary-text">${student.name}</td><td>${item.subject}</td><td>${item.topic}</td><td>${item.previous}%</td><td>${badge(item.status)}</td></tr>`; }).join("")}</tbody></table></div></section><section class="card"><div class="card-header"><div><h3>Improvement After Intervention</h3><p>Follow-up percentage comparison</p></div></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Previous</th><th>Follow-Up</th><th>Improvement</th></tr></thead><tbody>${state.followUps.map((follow) => { const item = interventionById(follow.interventionId); const student = studentById(item.studentId); const improvement = follow.score - item.previous; return `<tr><td class="primary-text">${student.name}</td><td>${item.previous}%</td><td>${follow.score}%</td><td style="color:var(--green);font-weight:700">+${improvement} pts</td></tr>`; }).join("")}</tbody></table></div></section></div><section class="card"><div class="card-header"><div><h3>Intervention Summary</h3><p>Current support activity</p></div></div><div class="card-body"><div class="overview-list"><div class="overview-row"><span>Active Interventions</span><strong>${state.interventions.filter((i) => i.status === "Active").length}</strong></div><div class="overview-row"><span>Follow-up Due</span><strong>${state.interventions.filter((i) => i.status === "Follow-up Due").length}</strong></div><div class="overview-row"><span>Completed Interventions</span><strong>${state.interventions.filter((i) => i.status === "Completed").length}</strong></div></div></div></section></div>`;
 }
 
+function reportsView() {
+  const sessions = [...new Set(state.assessments.map((assessment) => assessment.session).filter(Boolean))];
+  const filters = state.reportFilters;
+  return `${pageHeader("Reports", "Review assessment outcomes using the selected academic filters.", printButton("Print Report"))}<section class="card report-filters"><div class="card-header"><div><h3>Report Filters</h3><p>Choose criteria, then apply the filters to the report.</p></div><div class="actions"><button class="btn btn-primary btn-sm" data-action="apply-report">Apply Filters</button><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear Filters</button></div></div><div class="card-body"><div class="form-grid"><div class="field"><label>Academic Session</label><select id="report-session">${selectOptions(sessions, filters.session, true)}</select></div><div class="field"><label>Term</label><select id="report-term">${selectOptions(terms, filters.term, true)}</select></div><div class="field"><label>Class</label><select id="report-class">${selectOptions(classes, filters.className, true)}</select></div><div class="field"><label>Subject</label><select id="report-subject">${selectOptions(subjects, filters.subject, true)}</select></div><div class="field"><label>Assessment Type</label><select id="report-type">${selectOptions(assessmentTypes, filters.type, true)}</select></div></div></div></section><div id="report-results">${reportResultsView()}</div>`;
+}
+
+function reportResultsView() {
+  const filters = state.reportFilters;
+  const rows = state.results.map((result) => {
+    const student = studentById(result.studentId);
+    const assessment = assessmentById(result.assessmentId);
+    return student && assessment ? { result, student, assessment, percentage: percent(result.score, assessment.max) } : null;
+  }).filter((row) => row
+    && (!filters.session || row.assessment.session === filters.session)
+    && (!filters.term || row.assessment.term === filters.term)
+    && (!filters.className || row.student.className === filters.className)
+    && (!filters.subject || row.assessment.subject === filters.subject)
+    && (!filters.type || row.assessment.type === filters.type));
+  const average = rows.length ? Math.round(rows.reduce((total, row) => total + row.percentage, 0) / rows.length) : 0;
+  const needsSupport = rows.filter((row) => row.percentage < threshold).length;
+  return `<section class="card"><div class="card-body"><div class="report-summary"><div class="report-number"><span>Results</span><strong>${rows.length}</strong></div><div class="report-number"><span>Average</span><strong>${average}%</strong></div><div class="report-number"><span>Needs Intervention</span><strong>${needsSupport}</strong></div></div></div>${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Assessment</th><th>Score</th><th>Percentage</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map(({ result, student, assessment, percentage }) => `<tr><td><span class="primary-text">${esc(student.name)}</span><br><span class="muted">${esc(student.id)}</span></td><td>${esc(student.className)}</td><td>${esc(assessment.subject)}</td><td>${esc(assessment.name)}</td><td>${result.score} / ${assessment.max}</td><td>${percentage}%</td><td>${badge(statusFor(percentage))}</td><td><button class="link-action" data-route="student-details" data-id="${esc(student.id)}">View Student</button></td></tr>`).join("")}</tbody></table></div>` : emptyState("No matching results", "Change the filters or record results for the selected criteria.")}</section>`;
+}
+
 function simpleDirectoryView(type) {
   const isTeachers = type === "teachers";
+  const isSubjects = type === "subjects";
   const data = isTeachers
     ? state.users.filter((user) => user.role === "TEACHER").map((user) => [user.name, user.email, user.subject || "", user.classes || "", String(state.students.filter((student) => student.teacherId === user.id).length)])
     : type === "classes"
       ? classes.map((item) => [item, String(state.students.filter((student) => student.className === item).length)])
-      : subjects.map((item) => [item]);
-  const headers = isTeachers ? ["Name", "Email", "Subject", "Assigned Classes", "Assigned Students"] : type === "classes" ? ["Class", "Students"] : ["Subject"];
+      : state.subjects.map((subject) => [subject.name, String(subject.topics.length), subject.id]);
+  const headers = isTeachers ? ["Name", "Email", "Subject", "Assigned Classes", "Assigned Students"] : type === "classes" ? ["Class", "Students"] : ["Subject", "Topics", "Actions"];
   const title = isTeachers ? "Teachers" : type === "classes" ? "Classes" : "Subjects & Topics";
-  const action = isTeachers ? '<button class="btn btn-primary" data-action="add-directory" data-directory="teachers">＋ Add Teacher</button>' : "";
-  return `${pageHeader(title, isTeachers ? "Manage teacher accounts and class assignments." : "Available curriculum options.", action)}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${isTeachers ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${data.length ? data.map((row) => `<tr>${row.map((cell, index) => `<td class="${index === 0 ? "primary-text" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}">No ${isTeachers ? "teachers have been added" : "records"} yet.</td></tr>`}</tbody></table></div></section>`;
+  const action = isTeachers ? '<button class="btn btn-primary" data-action="add-directory" data-directory="teachers">＋ Add Teacher</button>' : isSubjects ? '<button class="btn btn-primary" data-action="add-subject">＋ Add Subject</button>' : "";
+  const rows = isSubjects
+    ? data.map(([name, count, id]) => `<tr><td class="primary-text">${esc(name)}</td><td>${count}</td><td><button class="link-action" data-action="manage-topics" data-id="${id}">Manage Topics</button><button class="link-action" data-action="edit-subject" data-id="${id}">Edit</button><button class="link-action" data-action="delete-subject" data-id="${id}">Delete</button></td></tr>`).join("")
+    : data.map((row) => `<tr>${row.map((cell, index) => `<td class="${index === 0 ? "primary-text" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("");
+  return `${pageHeader(title, isTeachers ? "Manage teacher accounts and class assignments." : isSubjects ? "Manage curriculum subjects and their topics." : "Classes represented by enrolled students.", action)}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${isTeachers ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${data.length ? rows : `<tr><td colspan="${headers.length}">No ${isTeachers ? "teachers have been added" : isSubjects ? "subjects have been added" : "classes have students"} yet.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function render() {
@@ -378,6 +462,47 @@ function render() {
 
 function bindPage() {
   const page = pageName();
+  if (page === "subjects") {
+    const actions = document.querySelector(".page-heading .actions");
+    if (actions && !actions.querySelector('[data-action="add-standard-subjects"]')) {
+      const button = document.createElement("button");
+      button.className = "btn btn-secondary";
+      button.type = "button";
+      button.dataset.action = "add-standard-subjects";
+      button.textContent = "Import Standard Subjects";
+      button.addEventListener("click", () => addStandardSubjects());
+      actions.prepend(button);
+    }
+  }
+  if (page === "create-assessment" && !state.subjects.length) {
+    const emptyStateActions = document.querySelector(".content .card-body .form-actions");
+    if (emptyStateActions && !emptyStateActions.querySelector('[data-action="add-standard-subjects"]')) {
+      const button = document.createElement("button");
+      button.className = "btn btn-primary";
+      button.type = "button";
+      button.dataset.action = "add-standard-subjects";
+      button.textContent = "＋ Add Standard Subjects";
+      button.addEventListener("click", () => addStandardSubjects());
+      emptyStateActions.prepend(button);
+    }
+  }
+  if (rosterRefreshTimer) clearInterval(rosterRefreshTimer);
+  rosterRefreshTimer = null;
+  if (page === "record-scores" && sessionStorage.getItem("ait-token")) {
+    rosterRefreshTimer = setInterval(async () => {
+      try {
+        const latestStudents = await apiRequest("/students");
+        if (pageName() !== "record-scores" || !Array.isArray(latestStudents)) return;
+        const nextStudents = latestStudents.map(mapStudent);
+        if (JSON.stringify(nextStudents) !== JSON.stringify(state.students)) {
+          state.students = nextStudents;
+          render();
+        }
+      } catch (error) {
+        console.warn("Could not refresh the score-entry roster:", error);
+      }
+    }, 8000);
+  }
   document.querySelectorAll("[data-route]").forEach((element) => element.addEventListener("click", () => {
     const route = element.dataset.route;
     if (route === "student-details") go(`student-details/${encodeURIComponent(element.dataset.id)}`);
@@ -400,17 +525,44 @@ function bindPage() {
   }
   document.getElementById("assessment-form")?.addEventListener("submit", saveAssessment);
   document.getElementById("scores-form")?.addEventListener("submit", saveScores);
-  document.getElementById("intervention-form")?.addEventListener("submit", saveIntervention);
+  const interventionForm = document.getElementById("intervention-form");
+  interventionForm?.addEventListener("submit", saveIntervention);
+  if (interventionForm) {
+    const subjectSelect = interventionForm.querySelector('[name="subject"]');
+    const topicInput = interventionForm.querySelector('[name="topic"]');
+    const teacherInput = interventionForm.querySelector('[name="teacher"]');
+    const teachers = state.users.filter((user) => user.role === "TEACHER");
+    const selectedTeacherId = state.role === "teacher" ? state.user.id : teachers[0]?.id;
+    teacherInput.outerHTML = `<select name="teacher" required>${teachers.map((teacher) => `<option value="${esc(teacher.id)}" ${teacher.id === selectedTeacherId ? "selected" : ""}>${esc(teacher.name)}</option>`).join("")}</select>`;
+    const topicList = document.createElement("datalist");
+    topicList.id = "intervention-topic-suggestions";
+    topicInput.setAttribute("list", topicList.id);
+    interventionForm.append(topicList);
+    const updateTopics = () => {
+      const selectedSubject = state.subjects.find((subject) => subject.name === subjectSelect.value);
+      topicList.innerHTML = (selectedSubject?.topics || []).map((topic) => `<option value="${esc(topic.name)}"></option>`).join("");
+    };
+    subjectSelect.addEventListener("change", updateTopics);
+    updateTopics();
+  }
   document.querySelectorAll(".score-input").forEach((input) => input.addEventListener("input", updateScoreRow));
 }
 
 function handleAction(action, element) {
-  if (action === "sign-out") { sessionStorage.removeItem("ait-auth"); sessionStorage.removeItem("ait-role"); authView = "login"; render(); }
-  if (action === "print-page") { window.print(); }
-  if (action === "toggle-password") {
+  if (action === "sign-out") {
+    if (rosterRefreshTimer) clearInterval(rosterRefreshTimer);
+    rosterRefreshTimer = null;
+    sessionStorage.removeItem("ait-auth");
+    sessionStorage.removeItem("ait-role");
+    sessionStorage.removeItem("ait-token");
+    authView = "login";
+    render();
+  } else if (action === "retry-setup-status") {
+    checkSetupStatus();
+  } else if (action === "print-page") {
+    window.print();
+  } else if (action === "toggle-password") {
     const passwordInput = document.getElementById("login-password") || document.getElementById("setup-password");
-      if (action === "sign-out") { sessionStorage.removeItem("ait-auth"); sessionStorage.removeItem("ait-role"); sessionStorage.removeItem("ait-token"); authView = "login"; render(); }
-      if (action === "retry-setup-status") checkSetupStatus();
     if (!passwordInput) return;
     const visible = passwordInput.type === "text";
     passwordInput.type = visible ? "password" : "text";
@@ -418,20 +570,67 @@ function handleAction(action, element) {
     element.classList.toggle("is-visible", !visible);
     element.setAttribute("aria-label", visible ? "Show password" : "Hide password");
     element.title = visible ? "Show password" : "Hide password";
+  } else if (action === "forgot-password") {
+    authView = "forgot";
+    render();
+  } else if (action === "back-to-login") {
+    authView = "login";
+    render();
+  } else if (state.role === "teacher" && ["add-student", "edit-student", "add-directory", "add-subject", "add-standard-subjects", "edit-subject", "delete-subject", "manage-topics"].includes(action)) {
+    return showToast("This feature is available to Super Admins only.");
+  } else if (action === "clear-filters") {
+    document.querySelectorAll(".filter-bar input").forEach((input) => { input.value = ""; });
+    document.querySelectorAll(".filter-bar select, .report-filters select").forEach((select) => { select.value = ""; });
+    state.reportFilters = { session: "", term: "", className: "", subject: "", type: "" };
+    if (pageName() === "students") renderStudentsTable();
+    if (pageName() === "assessments") renderAssessmentsTable();
+    if (pageName() === "results") renderResults();
+    if (pageName() === "interventions") renderInterventions();
+    if (pageName() === "follow-up") renderFollowUps();
+    if (pageName() === "reports") {
+      const reportResults = document.getElementById("report-results");
+      reportResults.innerHTML = reportResultsView();
+      bindGeneratedActions(reportResults);
+    }
+  } else if (action === "add-student") {
+    openStudentModal();
+  } else if (action === "edit-student") {
+    openStudentModal(studentById(element.dataset.id || pageParam()));
+  } else if (action === "view-assessment") {
+    openAssessmentModal(element.dataset.id);
+  } else if (action === "record-student-result") {
+    openStudentResultModal(element.dataset.id);
+  } else if (action === "add-directory") {
+    openDirectoryModal(element.dataset.directory);
+  } else if (action === "add-subject") {
+    openSubjectModal();
+  } else if (action === "add-standard-subjects") {
+    addStandardSubjects();
+  } else if (action === "manage-topics") {
+    openTopicsModal(element.dataset.id);
+  } else if (action === "edit-subject") {
+    openSubjectModal(state.subjects.find((subject) => subject.id === element.dataset.id));
+  } else if (action === "delete-subject") {
+    deleteSubject(element.dataset.id);
+  } else if (action === "record-follow-up") {
+    openFollowUpModal(interventionById(element.dataset.id));
+  } else if (action === "clear-directory") {
+    const input = document.getElementById("directory-search");
+    if (input) input.value = "";
+    document.querySelectorAll(".table-wrap tbody tr").forEach((row) => { row.hidden = false; });
+  } else if (action === "apply-report") {
+    state.reportFilters = {
+      session: document.getElementById("report-session").value,
+      term: document.getElementById("report-term").value,
+      className: document.getElementById("report-class").value,
+      subject: document.getElementById("report-subject").value,
+      type: document.getElementById("report-type").value,
+    };
+    const reportResults = document.getElementById("report-results");
+    reportResults.innerHTML = reportResultsView();
+    bindGeneratedActions(reportResults);
+    showToast("Report filters applied.");
   }
-  if (state.role === "teacher" && ["add-student", "edit-student", "add-directory"].includes(action)) return showToast("This feature is available to Super Admins only.");
-  if (action === "clear-filters") { document.querySelectorAll(".filter-bar input").forEach((input) => { input.value = ""; }); document.querySelectorAll(".filter-bar select, .report-filters select").forEach((select) => { select.value = ""; }); bindPage(); }
-  if (action === "add-student") openStudentModal();
-  if (action === "edit-student") openStudentModal(studentById(element.dataset.id || pageParam()));
-  if (action === "view-assessment") { const a = assessmentById(element.dataset.id); showToast(`${a.name} · ${a.subject} · ${a.max} marks`); }
-  if (action === "record-follow-up") openFollowUpModal(interventionById(element.dataset.id));
-  if (action === "add-directory") openDirectoryModal(element.dataset.directory);
-  if (action === "edit-directory") openDirectoryModal(element.dataset.directory, element.dataset.name);
-  if (action === "view-directory") showToast(`${element.dataset.name} details opened.`);
-  if (action === "clear-directory") { const input = document.getElementById("directory-search"); if (input) input.value = ""; document.querySelectorAll(".table-wrap tbody tr").forEach((row) => { row.hidden = false; }); }
-  if (action === "apply-report") showToast("Report filters applied.");
-  if (action === "forgot-password") { authView = "forgot"; render(); }
-  if (action === "back-to-login") { authView = "login"; render(); }
 }
 
 async function saveAssessment(event) {
@@ -496,7 +695,7 @@ async function saveIntervention(event) {
           previous: Number(data.previous) || 0,
           reason: data.reason,
           action: data.action,
-          teacherId: null,
+          teacherId: data.teacher,
           startDate: data.start,
           followUpDate: data.followUp,
           status: data.status || "Active",
@@ -541,11 +740,153 @@ function openDirectoryModal(type, existingName = "") {
   });
 }
 
+function openSubjectModal(subject = null) {
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${subject ? "Edit Subject" : "Add Subject"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form><div class="field"><label>Subject Name *</label><input name="name" required maxlength="100" value="${esc(subject?.name || "")}" placeholder="e.g. Mathematics"></div><div class="form-actions"><button class="btn btn-primary" type="submit">${subject ? "Save Changes" : "Add Subject"}</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    try {
+      await apiRequest(subject ? `/subjects/${encodeURIComponent(subject.id)}` : "/subjects", {
+        method: subject ? "PUT" : "POST",
+        body: JSON.stringify(data),
+      });
+      await loadRealData();
+      modal.remove();
+      showToast(subject ? "Subject updated." : "Subject added.");
+    } catch (error) {
+      showToast(error.message || "Unable to save subject.");
+    }
+  });
+}
+
+function openTopicEditor(subjectId, topic = null, onSaved = () => {}) {
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${topic ? "Edit Topic" : "Add Topic"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form><div class="field"><label>Topic Name *</label><input name="name" required maxlength="100" value="${esc(topic?.name || "")}" placeholder="e.g. Fractions"></div><div class="form-actions"><button class="btn btn-primary" type="submit">${topic ? "Save Changes" : "Add Topic"}</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    try {
+      await apiRequest(topic ? `/topics/${encodeURIComponent(topic.id)}` : `/subjects/${encodeURIComponent(subjectId)}/topics`, {
+        method: topic ? "PUT" : "POST",
+        body: JSON.stringify(data),
+      });
+      await loadRealData();
+      modal.remove();
+      onSaved();
+    } catch (error) {
+      showToast(error.message || "Unable to save topic.");
+    }
+  });
+}
+
+function openTopicsModal(subjectId) {
+  const subject = state.subjects.find((entry) => entry.id === subjectId);
+  if (!subject) return showToast("Subject not found. Refresh the page and try again.");
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${esc(subject.name)} Topics</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="table-wrap" data-topic-list></div><div class="form-actions"><button class="btn btn-primary" type="button" data-action="add-topic">＋ Add Topic</button><button class="btn btn-secondary" type="button" data-close>Done</button></div></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+
+  const refresh = () => {
+    const currentSubject = state.subjects.find((entry) => entry.id === subjectId);
+    const list = modal.querySelector("[data-topic-list]");
+    if (!currentSubject || !list) return;
+    list.innerHTML = currentSubject.topics.length
+      ? `<table><thead><tr><th>Topic</th><th>Actions</th></tr></thead><tbody>${currentSubject.topics.map((topic) => `<tr><td>${esc(topic.name)}</td><td><button class="link-action" data-edit-topic="${esc(topic.id)}">Edit</button><button class="link-action" data-delete-topic="${esc(topic.id)}">Delete</button></td></tr>`).join("")}</tbody></table>`
+      : emptyState("No topics yet", "Add the topics taught in this subject.");
+    list.querySelectorAll("[data-edit-topic]").forEach((button) => button.addEventListener("click", () => {
+      const selectedTopic = currentSubject.topics.find((entry) => entry.id === button.dataset.editTopic);
+      openTopicEditor(subjectId, selectedTopic, refresh);
+    }));
+    list.querySelectorAll("[data-delete-topic]").forEach((button) => button.addEventListener("click", async () => {
+      const selectedTopic = currentSubject.topics.find((entry) => entry.id === button.dataset.deleteTopic);
+      if (!selectedTopic || !window.confirm(`Delete topic "${selectedTopic.name}"?`)) return;
+      try {
+        await apiRequest(`/topics/${encodeURIComponent(selectedTopic.id)}`, { method: "DELETE" });
+        await loadRealData();
+        refresh();
+        showToast("Topic deleted.");
+      } catch (error) {
+        showToast(error.message || "Unable to delete topic.");
+      }
+    }));
+  };
+
+  modal.querySelector('[data-action="add-topic"]').addEventListener("click", () => openTopicEditor(subjectId, null, refresh));
+  refresh();
+}
+
+async function deleteSubject(subjectId) {
+  const subject = state.subjects.find((entry) => entry.id === subjectId);
+  if (!subject || !window.confirm(`Delete subject "${subject.name}" and its topics?`)) return;
+  try {
+    await apiRequest(`/subjects/${encodeURIComponent(subject.id)}`, { method: "DELETE" });
+    await loadRealData();
+    showToast("Subject deleted.");
+  } catch (error) {
+    showToast(error.message || "Unable to delete subject.");
+  }
+}
+
+async function addStandardSubjects() {
+  try {
+    const result = await apiRequest("/subjects/standard", { method: "POST" });
+    await loadRealData();
+    showToast(result.added ? `Added ${result.added} senior-secondary subjects.` : "All standard subjects are already in the catalog.");
+  } catch (error) {
+    showToast(error.message || "Unable to import standard subjects.");
+  }
+}
+
+function openAssessmentModal(assessmentId) {
+  const assessment = assessmentById(assessmentId);
+  if (!assessment) return showToast("Assessment not found.");
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${esc(assessment.name)}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="info-grid"><div class="info-item"><span>Type</span><strong>${esc(assessment.type)}</strong></div><div class="info-item"><span>Subject</span><strong>${esc(assessment.subject)}</strong></div><div class="info-item"><span>Class</span><strong>${esc(assessment.className)}</strong></div><div class="info-item"><span>Session and Term</span><strong>${esc(assessment.session)} · ${esc(assessment.term)}</strong></div><div class="info-item"><span>Date</span><strong>${fmtDate(assessment.date)}</strong></div><div class="info-item"><span>Maximum Score</span><strong>${assessment.max}</strong></div><div class="info-item"><span>Status</span><strong>${esc(assessment.status)}</strong></div></div><div class="form-actions"><button class="btn btn-primary" type="button" data-record-scores>Record Scores</button><button class="btn btn-secondary" type="button" data-close>Close</button></div></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("[data-record-scores]").addEventListener("click", () => {
+    modal.remove();
+    go(`record-scores/${encodeURIComponent(assessment.id)}`);
+  });
+}
+
 function openStudentModal(student = null) {
   const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${student ? "Edit Student" : "Add Student"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="student-modal-form"><div class="form-grid"><div class="field"><label>Student ID *</label><input name="studentId" required value="${esc(student?.id || "")}" ${student ? "readonly" : ""}></div><div class="field"><label>Full Name *</label><input name="name" required value="${esc(student?.name || "")}"></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes, student?.className || "")}</select></div><div class="field"><label>Academic Session *</label><input name="session" required value="${esc(student?.session || session)}"></div><div class="field"><label>Gender</label><select name="gender">${selectOptions(["Female", "Male"], student?.gender || "")}</select></div><div class="field"><label>Status</label><select name="status">${selectOptions(["Active", "Inactive"], student?.status || "Active")}</select></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Student</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); try { const endpoint = student ? `/students/${encodeURIComponent(student.id)}` : "/students"; await apiRequest(endpoint, { method: student ? "PUT" : "POST", body: JSON.stringify(data) }); await loadRealData(); modal.remove(); go("students"); showToast(student ? "Student updated successfully." : "Student added successfully."); } catch (error) { showToast(error.message || `Unable to ${student ? "update" : "add"} student.`); } });
 }
 function openFollowUpModal(intervention) {
-  const student = studentById(intervention.studentId), modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Record Follow-Up</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${student.name}</strong> · ${intervention.subject} · Previous percentage: ${intervention.previous}%</div><form id="follow-modal-form"><div class="field"><label>Follow-Up Percentage *</label><input name="score" type="number" min="0" max="100" required placeholder="Enter percentage"></div><div class="field"><label>Outcome *</label><select name="outcome" required>${selectOptions(["Improved", "Needs Further Support", "No Significant Improvement"])}</select></div><div class="field"><label>Follow-Up Date *</label><input name="date" type="date" required></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Follow-Up</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); const score = Number(data.score); if (score < 0 || score > 100) return showToast("Enter a percentage between 0 and 100."); state.followUps = state.followUps.filter((item) => item.interventionId !== intervention.id); state.followUps.push({ interventionId: intervention.id, score, outcome: data.outcome, date: data.date }); intervention.status = "Completed"; intervention.followUpScore = score; intervention.outcome = data.outcome; modal.remove(); render(); showToast("Follow-up result saved successfully."); });
+  const student = studentById(intervention.studentId);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Record Follow-Up</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${esc(student?.name || "Student")}</strong> · ${esc(intervention.subject)} · Previous percentage: ${intervention.previous}%</div><form id="follow-modal-form"><div class="field"><label>Follow-Up Percentage *</label><input name="score" type="number" min="0" max="100" step="0.5" required placeholder="Enter percentage"></div><div class="field"><label>Outcome *</label><select name="outcome" required>${selectOptions(["Improved", "Needs Further Support", "No Significant Improvement"])}</select></div><div class="field"><label>Follow-Up Date *</label><input name="date" type="date" required></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Follow-Up</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const score = Number(data.score);
+    if (!Number.isFinite(score) || score < 0 || score > 100) return showToast("Enter a percentage between 0 and 100.");
+    try {
+      await apiRequest("/follow-ups", {
+        method: "POST",
+        body: JSON.stringify({ interventionId: intervention.id, score, outcome: data.outcome, date: data.date }),
+      });
+      await loadRealData();
+      modal.remove();
+      showToast("Follow-up result saved successfully.");
+    } catch (error) {
+      showToast(error.message || "Unable to save follow-up result.");
+    }
+  });
 }
 
 window.addEventListener("hashchange", render);

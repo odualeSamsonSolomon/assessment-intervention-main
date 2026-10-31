@@ -1,16 +1,18 @@
 import type { Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
+import { seniorSecondarySubjects } from '../utils/senior-secondary-subjects.js';
 
 export const getDashboardData = async (req: Request & { user?: { id: string; role: string } }, res: Response) => {
   try {
-    const [students, assessments, results, interventions, followUps, users] = await Promise.all([
+    const [students, assessments, results, interventions, followUps, users, subjects] = await Promise.all([
       prisma.student.findMany({ include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } }),
       prisma.assessment.findMany({ orderBy: { date: 'desc' } }),
       prisma.result.findMany({ include: { assessment: true, student: true } }),
-      prisma.intervention.findMany({ include: { student: true, followUp: true } }),
+      prisma.intervention.findMany({ include: { student: true, followUp: true, teacher: { select: { id: true, name: true } } } }),
       prisma.followUp.findMany({ include: { intervention: true } }),
       prisma.user.findMany({ orderBy: { name: 'asc' } }),
+      prisma.subject.findMany({ include: { topics: { orderBy: { name: 'asc' } } }, orderBy: { name: 'asc' } }),
     ]);
 
     const needsIntervention = results.filter((result) => {
@@ -39,8 +41,7 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
         previous: intervention.previous,
         reason: intervention.reason,
         action: intervention.action,
-        teacher: intervention.teacherId ? { id: intervention.teacherId } : null,
-        teacherName: intervention.teacherId ? undefined : undefined,
+        teacher: intervention.teacher,
         start: intervention.startDate,
         followUp: intervention.followUpDate,
         status: intervention.status,
@@ -64,6 +65,7 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
         subject: user.subject,
         classes: user.classes,
       })),
+      subjects,
       summary: {
         totalStudents: students.length,
         totalAssessments: assessments.length,
@@ -153,6 +155,169 @@ export const updateStudent = async (req: Request, res: Response) => {
 export const getAssessments = async (_req: Request, res: Response) => {
   const assessments = await prisma.assessment.findMany({ orderBy: { date: 'desc' } });
   return res.json(assessments);
+};
+
+export const getSubjects = async (_req: Request, res: Response) => {
+  const subjects = await prisma.subject.findMany({
+    include: { topics: { orderBy: { name: 'asc' } } },
+    orderBy: { name: 'asc' },
+  });
+  return res.json(subjects);
+};
+
+export const createSubject = async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ message: 'Subject name is required.' });
+    const subject = await prisma.subject.create({ data: { name } });
+    return res.status(201).json(subject);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return res.status(409).json({ message: 'That subject already exists.' });
+    }
+    console.error('createSubject error:', error);
+    return res.status(500).json({ message: 'Unable to create subject.' });
+  }
+};
+
+export const addStandardSubjects = async (_req: Request, res: Response) => {
+  try {
+    const existing = await prisma.subject.findMany({ select: { name: true } });
+    const existingNames = new Set(existing.map((subject) => subject.name.trim().toLocaleLowerCase()));
+    const missingNames = seniorSecondarySubjects.filter((name) => !existingNames.has(name.toLocaleLowerCase()));
+    const result = await prisma.subject.createMany({
+      data: missingNames.map((name) => ({ name })),
+      skipDuplicates: true,
+    });
+    return res.status(201).json({ added: result.count, total: seniorSecondarySubjects.length });
+  } catch (error) {
+    console.error('addStandardSubjects error:', error);
+    return res.status(500).json({ message: 'Unable to add standard subjects.' });
+  }
+};
+
+export const updateSubject = async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ message: 'Subject name is required.' });
+    const subject = await prisma.$transaction(async (transaction) => {
+      const current = await transaction.subject.findUnique({ where: { id: String(req.params.subjectId) } });
+      if (!current) return null;
+      const updated = await transaction.subject.update({
+        where: { id: current.id },
+        data: { name },
+        include: { topics: { orderBy: { name: 'asc' } } },
+      });
+      if (current.name !== name) {
+        await Promise.all([
+          transaction.assessment.updateMany({ where: { subject: current.name }, data: { subject: name } }),
+          transaction.intervention.updateMany({ where: { subject: current.name }, data: { subject: name } }),
+        ]);
+      }
+      return updated;
+    });
+    if (!subject) return res.status(404).json({ message: 'Subject not found.' });
+    return res.json(subject);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return res.status(409).json({ message: 'That subject already exists.' });
+    }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
+      return res.status(404).json({ message: 'Subject not found.' });
+    }
+    console.error('updateSubject error:', error);
+    return res.status(500).json({ message: 'Unable to update subject.' });
+  }
+};
+
+export const deleteSubject = async (req: Request, res: Response) => {
+  try {
+    const subject = await prisma.subject.findUnique({ where: { id: String(req.params.subjectId) } });
+    if (!subject) return res.status(404).json({ message: 'Subject not found.' });
+    const [assessments, interventions] = await Promise.all([
+      prisma.assessment.count({ where: { subject: subject.name } }),
+      prisma.intervention.count({ where: { subject: subject.name } }),
+    ]);
+    if (assessments || interventions) {
+      return res.status(409).json({ message: 'This subject is used by existing assessments or interventions.' });
+    }
+    await prisma.subject.delete({ where: { id: subject.id } });
+    return res.status(204).send();
+  } catch (error) {
+    console.error('deleteSubject error:', error);
+    return res.status(500).json({ message: 'Unable to delete subject.' });
+  }
+};
+
+export const createTopic = async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const subjectId = String(req.params.subjectId);
+    if (!name) return res.status(400).json({ message: 'Topic name is required.' });
+    const topic = await prisma.topic.create({ data: { name, subjectId } });
+    return res.status(201).json(topic);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return res.status(409).json({ message: 'That topic already exists for this subject.' });
+    }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2003') {
+      return res.status(404).json({ message: 'Subject not found.' });
+    }
+    console.error('createTopic error:', error);
+    return res.status(500).json({ message: 'Unable to create topic.' });
+  }
+};
+
+export const updateTopic = async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ message: 'Topic name is required.' });
+    const topic = await prisma.$transaction(async (transaction) => {
+      const current = await transaction.topic.findUnique({
+        where: { id: String(req.params.topicId) },
+        include: { subject: true },
+      });
+      if (!current) return null;
+      const updated = await transaction.topic.update({ where: { id: current.id }, data: { name } });
+      if (current.name !== name) {
+        await transaction.intervention.updateMany({
+          where: { subject: current.subject.name, topic: current.name },
+          data: { topic: name },
+        });
+      }
+      return updated;
+    });
+    if (!topic) return res.status(404).json({ message: 'Topic not found.' });
+    return res.json(topic);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return res.status(409).json({ message: 'That topic already exists for this subject.' });
+    }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
+      return res.status(404).json({ message: 'Topic not found.' });
+    }
+    console.error('updateTopic error:', error);
+    return res.status(500).json({ message: 'Unable to update topic.' });
+  }
+};
+
+export const deleteTopic = async (req: Request, res: Response) => {
+  try {
+    const topic = await prisma.topic.findUnique({
+      where: { id: String(req.params.topicId) },
+      include: { subject: true },
+    });
+    if (!topic) return res.status(404).json({ message: 'Topic not found.' });
+    const interventions = await prisma.intervention.count({ where: { subject: topic.subject.name, topic: topic.name } });
+    if (interventions) {
+      return res.status(409).json({ message: 'This topic is used by existing interventions.' });
+    }
+    await prisma.topic.delete({ where: { id: topic.id } });
+    return res.status(204).send();
+  } catch (error) {
+    console.error('deleteTopic error:', error);
+    return res.status(500).json({ message: 'Unable to delete topic.' });
+  }
 };
 
 export const createAssessment = async (req: Request, res: Response) => {
@@ -289,8 +454,11 @@ export const createIntervention = async (req: Request, res: Response) => {
 export const saveFollowUp = async (req: Request, res: Response) => {
   try {
     const { interventionId, score, outcome, date } = req.body ?? {};
-    if (!interventionId || !score || !outcome || !date) {
+    if (!interventionId || score === undefined || score === null || !Number.isFinite(Number(score)) || !outcome || !date) {
       return res.status(400).json({ message: 'Follow-up details are incomplete.' });
+    }
+    if (Number(score) < 0 || Number(score) > 100) {
+      return res.status(400).json({ message: 'Follow-up score must be between 0 and 100.' });
     }
 
     const followUp = await prisma.followUp.upsert({
