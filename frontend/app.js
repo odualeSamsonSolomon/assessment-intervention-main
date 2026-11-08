@@ -28,7 +28,11 @@ let authView = "login";
 let needsAdminSetup = null;
 let setupStatusError = false;
 let rosterRefreshTimer = null;
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = window.AIT_API_BASE_URL || (
+  ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://localhost:5000/api"
+    : "https://assessment-intervention-main.vercel.app/api"
+);
 const apiRequest = async (path, options = {}) => {
   const token = sessionStorage.getItem("ait-token");
   const response = await fetch(`${API_BASE}${path}`, {
@@ -199,7 +203,7 @@ function setupAdminView() {
     <h2>Set up administrator</h2><p class="intro">Create the first administrator account to start managing school records.</p>
     <form id="setup-admin-form"><div class="field"><label for="setup-name">Full Name</label><input id="setup-name" name="name" required></div>
       <div class="field"><label for="setup-email">School Email</label><input id="setup-email" name="email" required type="email"></div>
-      <div class="field"><label for="setup-password">Password</label><div class="password-field"><input id="setup-password" name="password" required type="password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
+      <div class="field"><label for="setup-password">Password (12+ characters)</label><div class="password-field"><input id="setup-password" name="password" required minlength="12" type="password"><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" title="Show password">👁</button></div></div>
       <button class="btn btn-primary btn-block" type="submit">Create Administrator <span>→</span></button>
     </form>
   </section></main>`;
@@ -723,7 +727,7 @@ function updateScoreRow(event) {
 function openDirectoryModal(type, existingName = "") {
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
-  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Add Teacher</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="directory-form"><div class="field"><label>Full Name *</label><input name="name" required></div><div class="field"><label>School Email *</label><input name="email" type="email" required></div><div class="field"><label>Temporary Password *</label><input name="password" type="password" required minlength="8"></div><div class="field"><label>Subject Area *</label><input name="subject" required></div><div class="field"><label>Assigned Classes</label><input name="classes" placeholder="e.g. SSS1, SSS2"></div><div class="form-actions"><button class="btn btn-primary" type="submit">Create Teacher Account</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Add Teacher</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="directory-form"><div class="field"><label>Full Name *</label><input name="name" required></div><div class="field"><label>School Email *</label><input name="email" type="email" required></div><div class="field"><label>Temporary Password (12+ characters) *</label><input name="password" type="password" required minlength="12"></div><div class="field"><label>Subject Area *</label><input name="subject" required></div><div class="field"><label>Assigned Classes</label><input name="classes" placeholder="e.g. SSS1, SSS2"></div><div class="form-actions"><button class="btn btn-primary" type="submit">Create Teacher Account</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
   modal.querySelector("form").addEventListener("submit", async (event) => {

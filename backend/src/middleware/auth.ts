@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../utils/security.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -17,7 +18,7 @@ export const requireAuth = (req: AuthenticatedRequest, res: Response, next: Next
   }
 
   const token = authHeader.replace('Bearer ', '');
-  const secret = process.env.JWT_SECRET || 'dev-secret';
+  const secret = getJwtSecret();
 
   try {
     const payload = jwt.verify(token, secret) as { id: string; email: string; name: string; role: string };

@@ -6,6 +6,8 @@ import apiRoutes from './routes/index.js';
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by');
+
 const allowedOrigins = [
   'http://localhost:5500',
   'http://127.0.0.1:5500',
@@ -15,8 +17,17 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://localhost:8080',
   'http://127.0.0.1:8080',
-  process.env.CLIENT_URL,
-].filter(Boolean) as string[];
+  ...(process.env.CLIENT_URL || '').split(','),
+  ...(process.env.CLIENT_URLS || '').split(','),
+].map((origin) => origin.trim()).filter(Boolean);
+
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 
 app.use(cors({
   origin: (origin, callback) => {

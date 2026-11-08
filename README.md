@@ -100,8 +100,10 @@ CLIENT_URL="http://localhost:5500"
 
 Notes:
 - `DATABASE_URL` must point to a working PostgreSQL database.
-- `JWT_SECRET` should be unique and kept private in production.
-- `CLIENT_URL` is used for CORS access from the frontend.
+- In production, `JWT_SECRET` is required and must be at least 32 characters.
+  Keep it private and use the same value across all backend instances.
+- `CLIENT_URL` is the frontend origin allowed to call the API. Multiple
+  comma-separated origins are supported.
 
 ## Database setup
 
@@ -144,26 +146,30 @@ curl http://localhost:5000/api/health
 
 ### Deploy the backend to Vercel
 
-Create a Vercel project for this repository and set its **Root Directory** to
-`backend`. The backend exposes its Express app through `backend/api/[...path].ts`
-so Vercel can invoke it as a serverless function; do not use `npm start` as the
-Vercel function entry point.
+Create a Vercel project for this repository with **Root Directory** set to
+`backend`. Vercel detects the Express app exported from `src/app.ts` and routes
+requests through it.
 
 Set the project environment variables for the Production environment:
 
 - `DATABASE_URL`: connection string for the production PostgreSQL database
-- `JWT_SECRET`: a long, unique secret
-- `CLIENT_URL`: the deployed frontend's origin, if it is hosted separately
+- `JWT_SECRET`: a unique secret of at least 32 characters
+- `CLIENT_URL`: the deployed frontend's origin (for example,
+  `https://assessment-intervention-frontend.vercel.app`)
 
-Deploy, then check `https://<your-backend-domain>/api/health`. It should return
-`{"status":"ok","service":"assessment-intervention-api"}`. If it still returns
-a Vercel `FUNCTION_INVOCATION_FAILED`, inspect the failed deployment's Function
-Logs; missing or invalid environment variables and database connectivity errors
-will be shown there.
+Deploy, then check `https://<your-backend-domain>/api/health` and
+`https://<your-backend-domain>/api/auth/setup-status`.
 
-### Open the frontend
+### Deploy the frontend to Vercel
 
-Open `frontend/index.html` directly in the browser, or serve the frontend with a local static web server such as Live Server in VS Code.
+Create a second Vercel project connected to this repository with **Root
+Directory** set to `frontend`. The frontend calls the production backend by
+default; local development on `localhost` continues to use
+`http://localhost:5000/api`.
+
+Set `CLIENT_URL` in the backend project to the frontend's production origin,
+then redeploy the backend. For local development, open `frontend/index.html`
+or serve `frontend/` with a local static web server.
 
 ## First run / first admin setup
 
@@ -171,7 +177,8 @@ On a fresh installation:
 
 1. Start the backend.
 2. Open the frontend.
-3. Create the initial administrator account.
+3. Create the initial administrator account with a password of at least 12
+   characters.
 4. Sign in as the admin.
 5. Add teacher accounts and students using the app.
 

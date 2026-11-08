@@ -1,15 +1,12 @@
-import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
+import { getJwtSecret, hashPassword, isLegacyPasswordHash, verifyPassword } from '../utils/security.js';
 import { rebalanceStudentsAcrossTeachers } from '../utils/student-assignment.js';
 
-const hashPassword = (password: string) => createHash('sha256').update(password).digest('hex');
-
 const signToken = (payload: { id: string; email: string; name: string; role: string }) => {
-  const secret = process.env.JWT_SECRET || 'dev-secret';
-  return jwt.sign(payload, secret, { expiresIn: '7d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '7d' });
 };
 
 export const getSetupStatus = async (_req: Request, res: Response) => {
@@ -29,12 +26,17 @@ export const setupAdmin = async (req: Request, res: Response) => {
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required.' });
     }
+    if (String(password).length < 12) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters.' });
+    }
 
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return res.status(400).json({ message: 'Please provide a valid email address.' });
     }
 
+    getJwtSecret();
+    const passwordHash = await hashPassword(String(password));
     const createdUser = await prisma.$transaction(async (transaction) => {
       const admin = await transaction.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
       if (admin) throw new Error('ADMIN_ALREADY_EXISTS');
@@ -42,7 +44,7 @@ export const setupAdmin = async (req: Request, res: Response) => {
         data: {
           name: String(name).trim(),
           email: normalizedEmail,
-          password: hashPassword(String(password)),
+          password: passwordHash,
           role: 'ADMIN',
           subject: 'Administration',
           classes: 'All classes',
@@ -73,18 +75,22 @@ export const createTeacher = async (req: Request, res: Response) => {
     if (!name || !email || !password || !subject) {
       return res.status(400).json({ message: 'Name, email, password and subject are required.' });
     }
+    if (String(password).length < 12) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters.' });
+    }
 
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return res.status(400).json({ message: 'Please provide a valid email address.' });
     }
 
+    const passwordHash = await hashPassword(String(password));
     const teacher = await prisma.$transaction(async (transaction) => {
       const createdTeacher = await transaction.user.create({
         data: {
           name: String(name).trim(),
           email: normalizedEmail,
-          password: hashPassword(String(password)),
+          password: passwordHash,
           role: 'TEACHER',
           subject: String(subject).trim(),
           classes: classes ? String(classes).trim() : null,
@@ -117,15 +123,23 @@ export const loginUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
+    getJwtSecret();
     const normalizedEmail = String(email).trim().toLowerCase();
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    const passwordMatches = user.password === hashPassword(String(password));
+    const passwordMatches = await verifyPassword(String(password), user.password);
     if (!passwordMatches) {
       return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+
+    if (isLegacyPasswordHash(user.password)) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: await hashPassword(String(password)) },
+      });
     }
 
     const token = signToken({
