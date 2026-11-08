@@ -107,14 +107,17 @@ Notes:
 
 ## Database setup
 
-From the backend directory:
+For local development, sync the schema from the backend directory:
 
 ```bash
 cd backend
 npx prisma db push
 ```
 
-This syncs the Prisma schema with PostgreSQL. If the database does not yet exist, create it first in PostgreSQL, then run the command.
+For production, commit schema changes as Prisma migrations and apply them with
+`npx prisma migrate deploy`. Vercel Production builds run this command
+automatically before compiling the backend; Preview builds do not modify the
+database.
 
 ## Installation
 
