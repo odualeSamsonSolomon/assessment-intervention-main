@@ -1,17 +1,40 @@
 import type { Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { seniorSecondarySubjects } from '../utils/senior-secondary-subjects.js';
 
-export const getDashboardData = async (req: Request & { user?: { id: string; role: string } }, res: Response) => {
+const teacherIdFor = (req: AuthenticatedRequest) =>
+  req.user?.role === 'TEACHER' ? req.user.id : undefined;
+
+const assessmentWhereFor = async (teacherId?: string) => {
+  if (!teacherId) return {};
+
+  const assignedClasses = await prisma.student.findMany({
+    where: { teacherId },
+    select: { className: true },
+    distinct: ['className'],
+  });
+
+  return {
+    OR: [
+      { teacherId },
+      { className: { in: assignedClasses.map((student) => student.className) } },
+    ],
+  };
+};
+
+export const getDashboardData = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const teacherId = teacherIdFor(req);
+    const assessmentWhere = await assessmentWhereFor(teacherId);
     const [students, assessments, results, interventions, followUps, users, subjects] = await Promise.all([
-      prisma.student.findMany({ include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } }),
-      prisma.assessment.findMany({ orderBy: { date: 'desc' } }),
-      prisma.result.findMany({ include: { assessment: true, student: true } }),
-      prisma.intervention.findMany({ include: { student: true, followUp: true, teacher: { select: { id: true, name: true } } } }),
-      prisma.followUp.findMany({ include: { intervention: true } }),
-      prisma.user.findMany({ orderBy: { name: 'asc' } }),
+      prisma.student.findMany({ where: teacherId ? { teacherId } : {}, include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } }),
+      prisma.assessment.findMany({ where: assessmentWhere, orderBy: { date: 'desc' } }),
+      prisma.result.findMany({ where: teacherId ? { student: { teacherId } } : {}, include: { assessment: true, student: true } }),
+      prisma.intervention.findMany({ where: teacherId ? { student: { teacherId } } : {}, include: { student: true, followUp: true, teacher: { select: { id: true, name: true } } } }),
+      prisma.followUp.findMany({ where: teacherId ? { intervention: { student: { teacherId } } } : {}, include: { intervention: true } }),
+      prisma.user.findMany({ where: teacherId ? { id: teacherId } : {}, orderBy: { name: 'asc' } }),
       prisma.subject.findMany({ include: { topics: { orderBy: { name: 'asc' } } }, orderBy: { name: 'asc' } }),
     ]);
 
@@ -81,8 +104,9 @@ export const getDashboardData = async (req: Request & { user?: { id: string; rol
   }
 };
 
-export const getStudents = async (_req: Request, res: Response) => {
-  const students = await prisma.student.findMany({ include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } });
+export const getStudents = async (req: AuthenticatedRequest, res: Response) => {
+  const teacherId = teacherIdFor(req);
+  const students = await prisma.student.findMany({ where: teacherId ? { teacherId } : {}, include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } });
   return res.json(students);
 };
 
@@ -152,8 +176,8 @@ export const updateStudent = async (req: Request, res: Response) => {
   }
 };
 
-export const getAssessments = async (_req: Request, res: Response) => {
-  const assessments = await prisma.assessment.findMany({ orderBy: { date: 'desc' } });
+export const getAssessments = async (req: AuthenticatedRequest, res: Response) => {
+  const assessments = await prisma.assessment.findMany({ where: await assessmentWhereFor(teacherIdFor(req)), orderBy: { date: 'desc' } });
   return res.json(assessments);
 };
 
@@ -320,11 +344,16 @@ export const deleteTopic = async (req: Request, res: Response) => {
   }
 };
 
-export const createAssessment = async (req: Request, res: Response) => {
+export const createAssessment = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, type, subject, className, session, term, date, maxScore, status } = req.body ?? {};
     if (!name || !type || !subject || !className || !session || !term || !date || !maxScore) {
       return res.status(400).json({ message: 'Please complete all assessment fields.' });
+    }
+
+    const teacherId = teacherIdFor(req);
+    if (teacherId && !await prisma.student.findFirst({ where: { teacherId, className: String(className) }, select: { id: true } })) {
+      return res.status(403).json({ message: 'Assessments can only be created for your assigned classes.' });
     }
 
     const assessment = await prisma.assessment.create({
@@ -338,6 +367,7 @@ export const createAssessment = async (req: Request, res: Response) => {
         date: new Date(date),
         maxScore: Number(maxScore),
         status: status ? String(status) : 'Draft',
+        teacherId,
       },
     });
 
@@ -348,8 +378,10 @@ export const createAssessment = async (req: Request, res: Response) => {
   }
 };
 
-export const getResults = async (_req: Request, res: Response) => {
+export const getResults = async (req: AuthenticatedRequest, res: Response) => {
+  const teacherId = teacherIdFor(req);
   const results = await prisma.result.findMany({
+    where: teacherId ? { student: { teacherId } } : {},
     include: { assessment: true, student: true },
     orderBy: { createdAt: 'desc' },
   });
@@ -364,11 +396,35 @@ export const getResults = async (_req: Request, res: Response) => {
   })));
 };
 
-export const saveScores = async (req: Request, res: Response) => {
+export const saveScores = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { assessmentId, scores } = req.body ?? {};
     if (!assessmentId || !Array.isArray(scores)) {
       return res.status(400).json({ message: 'Assessment ID and scores are required.' });
+    }
+
+    const teacherId = teacherIdFor(req);
+    if (teacherId) {
+      const assessment = await prisma.assessment.findUnique({
+        where: { id: String(assessmentId) },
+        select: { id: true, teacherId: true, className: true },
+      });
+      if (!assessment) return res.status(404).json({ message: 'Assessment not found.' });
+      if (assessment.teacherId && assessment.teacherId !== teacherId) {
+        return res.status(403).json({ message: 'You cannot enter scores for this assessment.' });
+      }
+
+      const uniqueStudentIds = [...new Set(scores.map((entry: { studentId: string }) => String(entry.studentId)))];
+      const assignedStudents = await prisma.student.count({
+        where: {
+          id: { in: uniqueStudentIds },
+          teacherId,
+          className: assessment.className,
+        },
+      });
+      if (assignedStudents !== uniqueStudentIds.length) {
+        return res.status(403).json({ message: 'Scores can only be entered for your assigned students in this class.' });
+      }
     }
 
     const promises = scores.map(async ({ studentId, score }: { studentId: string; score: number }) => {
@@ -394,8 +450,10 @@ export const saveScores = async (req: Request, res: Response) => {
   }
 };
 
-export const getInterventions = async (_req: Request, res: Response) => {
+export const getInterventions = async (req: AuthenticatedRequest, res: Response) => {
+  const teacherId = teacherIdFor(req);
   const interventions = await prisma.intervention.findMany({
+    where: teacherId ? { student: { teacherId } } : {},
     include: { student: true, followUp: true },
     orderBy: { createdAt: 'desc' },
   });
@@ -420,11 +478,16 @@ export const getInterventions = async (_req: Request, res: Response) => {
   })));
 };
 
-export const createIntervention = async (req: Request, res: Response) => {
+export const createIntervention = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { studentId, subject, topic, assessmentId, previous, reason, action, teacherId, startDate, followUpDate, status, notes } = req.body ?? {};
+    const { studentId, subject, topic, assessmentId, previous, reason, action, teacherId: requestedTeacherId, startDate, followUpDate, status, notes } = req.body ?? {};
     if (!studentId || !subject || !topic || !reason || !action || !startDate || !followUpDate) {
       return res.status(400).json({ message: 'Please complete all intervention fields.' });
+    }
+
+    const teacherId = teacherIdFor(req);
+    if (teacherId && !await prisma.student.findFirst({ where: { id: String(studentId), teacherId }, select: { id: true } })) {
+      return res.status(403).json({ message: 'Interventions can only be created for your assigned students.' });
     }
 
     const intervention = await prisma.intervention.create({
@@ -436,7 +499,7 @@ export const createIntervention = async (req: Request, res: Response) => {
         previous: previous !== undefined && previous !== null ? Number(previous) : 0,
         reason: String(reason),
         action: String(action),
-        teacherId: teacherId ? String(teacherId) : null,
+        teacherId: teacherId ?? (requestedTeacherId ? String(requestedTeacherId) : null),
         startDate: new Date(startDate),
         followUpDate: new Date(followUpDate),
         status: status ? String(status) : 'Active',
@@ -451,7 +514,7 @@ export const createIntervention = async (req: Request, res: Response) => {
   }
 };
 
-export const saveFollowUp = async (req: Request, res: Response) => {
+export const saveFollowUp = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { interventionId, score, outcome, date } = req.body ?? {};
     if (!interventionId || score === undefined || score === null || !Number.isFinite(Number(score)) || !outcome || !date) {
@@ -459,6 +522,14 @@ export const saveFollowUp = async (req: Request, res: Response) => {
     }
     if (Number(score) < 0 || Number(score) > 100) {
       return res.status(400).json({ message: 'Follow-up score must be between 0 and 100.' });
+    }
+
+    const teacherId = teacherIdFor(req);
+    if (teacherId && !await prisma.intervention.findFirst({
+      where: { id: String(interventionId), student: { teacherId } },
+      select: { id: true },
+    })) {
+      return res.status(403).json({ message: 'Follow-ups can only be recorded for your assigned students.' });
     }
 
     const followUp = await prisma.followUp.upsert({

@@ -27,6 +27,7 @@ This project helps schools do the following:
 - Student registration with Student ID, class, gender, session, and status
 - Automatic assignment to the least-loaded teacher
 - Teacher roster includes student counts and class assignments
+- Teachers can access only their assigned students and related academic records; administrators retain school-wide access
 
 ### Academic data
 - Subject catalog with standard senior secondary subjects
@@ -225,7 +226,7 @@ The backend exposes a REST API under `/api` with routes for:
 
 Potential enhancements for future versions include:
 
-- Role-based UI restrictions for teachers vs. administrators
+- Additional configurable role permissions beyond the assigned-student access policy
 - Better reporting and export features
 - Bulk student import from CSV
 - Assessment analytics dashboards
