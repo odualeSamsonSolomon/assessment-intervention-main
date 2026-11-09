@@ -119,8 +119,9 @@ npx prisma db push
 
 For production, commit schema changes as Prisma migrations and apply them with
 `npx prisma migrate deploy`. Vercel Production builds run this command
-automatically before compiling the backend; Preview builds do not modify the
-database.
+automatically before compiling the backend. Preview builds run it only when
+`RUN_PREVIEW_MIGRATIONS=true` is set in that backend project's Preview
+environment.
 
 ## Installation
 
@@ -220,15 +221,18 @@ Add and test a secure reset workflow before relying on self-service recovery.
 ### Safe rollout checklist
 
 1. Create a separate non-production PostgreSQL database for Vercel Preview.
-   Configure Preview's `DATABASE_URL` to that database; never point Preview at
-   the production database.
-2. With the Preview database URL loaded in the environment, run
-   `npx prisma migrate deploy` from `backend/` to apply the migrations there.
-   Preview builds intentionally do not run migrations automatically.
-3. Test student and teacher signup, pending-account login rejection, admin
+   Configure the backend project's Preview `DATABASE_URL` to that database;
+   never point Preview at the production database.
+2. Set `RUN_PREVIEW_MIGRATIONS=true` only in the backend project's Preview
+   environment. Preview builds then apply migrations automatically, while
+   Production remains gated to the Production environment.
+3. Configure the frontend project's Preview `AIT_API_BASE_URL` to the Preview
+   backend URL ending in `/api`. Preview frontend builds fail if this is
+   missing, preventing accidental calls to the Production API.
+4. Test student and teacher signup, pending-account login rejection, admin
    approval and rejection, student-only data access, and rate limiting (HTTP
    429). Confirm the Preview app uses only test data.
-4. Before a production migration, take a database-provider snapshot or create
+5. Before a production migration, take a database-provider snapshot or create
    a `pg_dump` backup, then verify that the backup can be restored to a
    separate disposable database. For PowerShell, with `DATABASE_URL` set in
    the current session:
@@ -237,7 +241,7 @@ Add and test a secure reset workflow before relying on self-service recovery.
    pg_dump --format=custom --file="assessment-intervention-before-release.dump" "$env:DATABASE_URL"
    ```
 
-5. Only after Preview checks and backup verification, apply migrations to
+6. Only after Preview checks and backup verification, apply migrations to
    production through the normal release workflow. The production build runs
    `prisma migrate deploy` automatically.
 
