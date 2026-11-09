@@ -251,22 +251,21 @@ export const getPendingStudents = async (_req: AuthenticatedRequest, res: Respon
 
 export const approveStudent = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const studentRecordId = String(req.body?.studentRecordId || '');
-    if (!studentRecordId) return res.status(400).json({ message: 'Select the verified student record to link.' });
-
     await prisma.$transaction(async (transaction) => {
       const account = await transaction.user.findFirst({
         where: { id: String(req.params.userId), role: 'STUDENT', isApproved: false },
       });
       if (!account) throw new Error('PENDING_STUDENT_NOT_FOUND');
 
-      const student = await transaction.student.findUnique({
-        where: { id: studentRecordId },
-        select: { id: true, studentId: true, name: true, status: true, loginUserId: true },
+      const student = await transaction.student.findFirst({
+        where: {
+          studentId: account.requestedStudentId ?? '',
+          status: 'Active',
+          loginUserId: null,
+        },
+        select: { id: true, name: true },
       });
-      if (!student || student.studentId !== account.requestedStudentId || student.status !== 'Active' || student.loginUserId) {
-        throw new Error('STUDENT_RECORD_NOT_MATCHED');
-      }
+      if (!student) throw new Error('STUDENT_RECORD_NOT_MATCHED');
 
       await transaction.user.update({
         where: { id: account.id },
@@ -283,7 +282,7 @@ export const approveStudent = async (req: AuthenticatedRequest, res: Response) =
       return res.status(404).json({ message: 'Pending student registration not found.' });
     }
     if (error instanceof Error && error.message === 'STUDENT_RECORD_NOT_MATCHED') {
-      return res.status(409).json({ message: 'The selected record is inactive, already linked, or its student ID does not match the registration.' });
+      return res.status(409).json({ message: 'No unlinked active school record matches this student ID. Add or activate the matching student record, then approve again.' });
     }
     console.error('approveStudent error:', error);
     return res.status(500).json({ message: 'Unable to approve student registration.' });

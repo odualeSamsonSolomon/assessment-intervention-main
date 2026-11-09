@@ -354,7 +354,7 @@ function pageHeader(title, description, action) { return `<div class="page-headi
 function printButton(label = "Print") { return `<button class="btn btn-secondary" data-action="print-page">▣ ${label}</button>`; }
 
 function studentsView() {
-  const pendingRows = state.pendingStudents.map((request) => `<tr><td class="primary-text">${esc(request.name)}</td><td>${esc(request.email)}</td><td>${esc(request.requestedStudentId)}</td><td>${fmtDate(request.createdAt.slice(0, 10))}</td><td><button class="link-action" data-action="approve-student" data-id="${esc(request.id)}">Verify &amp; approve</button><button class="link-action" data-action="reject-student" data-id="${esc(request.id)}">Reject</button></td></tr>`).join("");
+  const pendingRows = state.pendingStudents.map((request) => `<tr><td class="primary-text">${esc(request.name)}</td><td>${esc(request.email)}</td><td>${esc(request.requestedStudentId)}</td><td>${fmtDate(request.createdAt.slice(0, 10))}</td><td><button class="link-action" data-action="approve-student" data-id="${esc(request.id)}">Approve</button><button class="link-action" data-action="reject-student" data-id="${esc(request.id)}">Reject</button></td></tr>`).join("");
   return `${pageHeader("Students", "View and manage students enrolled in internal assessment tracking.", state.role === "admin" ? '<button class="btn btn-primary" data-action="add-student">＋ Add Student</button>' : "")}${state.role === "admin" ? `<section class="card" style="margin-bottom:20px"><div class="card-header"><div><h3>Pending Student Account Requests</h3><p>Verify each request and link it to the matching school student record before granting access.</p></div>${badge(String(state.pendingStudents.length))}</div><div class="table-wrap"><table><thead><tr><th>Student Name</th><th>Email</th><th>Claimed Student ID</th><th>Requested</th><th>Action</th></tr></thead><tbody>${pendingRows || `<tr><td colspan="5">There are no pending student account requests.</td></tr>`}</tbody></table></div></section>` : ""}<section class="card"><div class="filter-bar"><input class="search-input" id="student-search" placeholder="Search by student name or ID"><select id="student-class">${selectOptions(classes, "", true)}</select><select id="student-status">${selectOptions(["Active", "Inactive"], "", true)}</select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div class="table-wrap" id="students-table"></div></section>`;
 }
 function renderStudentsTable() {
@@ -682,9 +682,9 @@ function handleAction(action, element) {
   } else if (action === "reject-teacher") {
     updateTeacherRequest(element.dataset.id, false);
   } else if (action === "approve-student") {
-    openStudentApprovalModal(element.dataset.id);
+    updateStudentRequest(element.dataset.id, true, element);
   } else if (action === "reject-student") {
-    updateStudentRequest(element.dataset.id);
+    updateStudentRequest(element.dataset.id, false, element);
   } else if (state.role === "teacher" && ["add-student", "edit-student", "add-directory", "add-subject", "add-standard-subjects", "edit-subject", "delete-subject", "manage-topics"].includes(action)) {
     return showToast("This feature is available to Super Admins only.");
   } else if (action === "clear-filters") {
@@ -993,45 +993,33 @@ function openStudentModal(student = null) {
   });
 }
 
-function openStudentApprovalModal(userId) {
+async function updateStudentRequest(userId, approve, button) {
   const request = state.pendingStudents.find((item) => item.id === userId);
   if (!request) return showToast("Pending student registration not found.");
-  const matchingStudents = state.students.filter((student) =>
-    student.id === request.requestedStudentId
-    && student.status === "Active"
-    && student.portalAccountStatus !== "active"
-  );
-  const modal = document.createElement("div");
-  modal.className = "modal-backdrop";
-  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Verify student registration</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${esc(request.name)}</strong> · ${esc(request.email)}<br>Claimed student ID: ${esc(request.requestedStudentId)}<br>Verify the student's identity and email against school records before approving.</div>${matchingStudents.length ? `<form id="student-approval-form"><div class="field"><label>Matching active school record *</label><select name="studentRecordId" required>${matchingStudents.map((student) => `<option value="${esc(student.dbId)}">${esc(student.name)} · ${esc(student.id)} · ${esc(student.className)}</option>`).join("")}</select></div><div class="form-actions"><button class="btn btn-primary" type="submit">Verify &amp; Approve</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form>` : `<p>No unlinked active student record matches this requested ID. Confirm the ID or reject the request.</p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Close</button></div>`}</div></div>`;
-  document.body.appendChild(modal);
-  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
-  modal.querySelector("form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const studentRecordId = new FormData(event.target).get("studentRecordId");
-    try {
-      const response = await apiRequest(`/students/accounts/${encodeURIComponent(userId)}/approve`, {
-        method: "POST",
-        body: JSON.stringify({ studentRecordId }),
-      });
-      await loadRealData();
-      modal.remove();
-      go("students");
-      showToast(response.message || "Student account approved.");
-    } catch (error) {
-      showToast(error.message || "Unable to approve student registration.");
-    }
-  });
-}
-
-async function updateStudentRequest(userId) {
+  if (button) {
+    button.disabled = true;
+    button.textContent = approve ? "Approving..." : "Rejecting...";
+  }
   try {
-    await apiRequest(`/students/accounts/${encodeURIComponent(userId)}`, { method: "DELETE" });
-    await loadRealData();
-    go("students");
-    showToast("Student registration rejected.");
+    const response = await apiRequest(
+      approve
+        ? `/students/accounts/${encodeURIComponent(userId)}/approve`
+        : `/students/accounts/${encodeURIComponent(userId)}`,
+      { method: approve ? "POST" : "DELETE" },
+    );
+    state.pendingStudents = state.pendingStudents.filter((item) => item.id !== userId);
+    if (approve) {
+      const student = state.students.find((item) => item.id === request.requestedStudentId);
+      if (student) student.portalAccountStatus = "active";
+    }
+    render();
+    showToast(approve ? response.message || "Student account approved." : "Student registration rejected.");
   } catch (error) {
-    showToast(error.message || "Unable to update student registration.");
+    if (button) {
+      button.disabled = false;
+      button.textContent = approve ? "Approve" : "Reject";
+    }
+    showToast(error.message || `Unable to ${approve ? "approve" : "reject"} student registration.`);
   }
 }
 
