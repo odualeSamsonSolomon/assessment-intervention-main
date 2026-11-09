@@ -20,14 +20,16 @@ This project helps schools do the following:
 ### User management
 - Administrator setup on first launch
 - Secure JWT-based authentication
-- Teacher and admin roles
-- Teacher load balancing when new teachers are created
+- Administrator, teacher, and student roles
+- Teacher self-registration with administrator approval
+- Student self-registration with administrator verification and approval
 
 ### Student and class monitoring
 - Student registration with Student ID, class, gender, session, and status
-- Automatic assignment to the least-loaded teacher
+- Administrator-managed teacher and student assignments
 - Teacher roster includes student counts and class assignments
 - Teachers can access only their assigned students and related academic records; administrators retain school-wide access
+- Students can view only their own published results and support updates
 
 ### Academic data
 - Subject catalog with standard senior secondary subjects
@@ -175,7 +177,7 @@ Set `CLIENT_URL` in the backend project to the frontend's production origin,
 then redeploy the backend. For local development, open `frontend/index.html`
 or serve `frontend/` with a local static web server.
 
-## First run / first admin setup
+## Account onboarding
 
 On a fresh installation:
 
@@ -184,9 +186,65 @@ On a fresh installation:
 3. Create the initial administrator account with a password of at least 12
    characters.
 4. Sign in as the admin.
-5. Add teacher accounts and students using the app.
+5. Teachers can register from the sign-in page; their accounts remain pending
+   until an administrator approves them in **Teachers**.
+6. Administrators assign students to approved teachers when creating or editing
+   student records.
+7. Students can request portal accounts from the sign-in page using their
+   school student ID, name, email, and a password. Requests remain locked until
+   an administrator verifies the student's identity and email against school
+   records and links the request to the matching active school record. Email
+   verification is currently a manual school-admin check; no verification
+   email is sent.
 
-The system will automatically assign new students to the least-loaded teacher. When teachers are added, student assignments are rebalanced to keep teacher workloads as even as possible.
+Existing teacher assignments are preserved; administrators can assign or
+reassign students using the student record editor. New students can remain
+unassigned until an administrator selects a teacher. The
+student portal displays only that student's published assessment results and
+student-facing intervention status; student accounts cannot access staff APIs.
+
+The onboarding migration adds account approval state, the requested student ID,
+and a student-account link without deleting existing school data. A separate
+migration adds shared PostgreSQL-backed rate-limit buckets for sign-in and
+public registration routes. Both migrations are additive and do not delete
+existing school records.
+
+### Account recovery
+
+The portal does not currently have a password-reset workflow. Users should
+contact the designated system operator, who must verify their identity through
+a school-approved channel and arrange recovery through the approved
+administrative process. Never ask users to send passwords by email or chat.
+Add and test a secure reset workflow before relying on self-service recovery.
+
+### Safe rollout checklist
+
+1. Create a separate non-production PostgreSQL database for Vercel Preview.
+   Configure Preview's `DATABASE_URL` to that database; never point Preview at
+   the production database.
+2. With the Preview database URL loaded in the environment, run
+   `npx prisma migrate deploy` from `backend/` to apply the migrations there.
+   Preview builds intentionally do not run migrations automatically.
+3. Test student and teacher signup, pending-account login rejection, admin
+   approval and rejection, student-only data access, and rate limiting (HTTP
+   429). Confirm the Preview app uses only test data.
+4. Before a production migration, take a database-provider snapshot or create
+   a `pg_dump` backup, then verify that the backup can be restored to a
+   separate disposable database. For PowerShell, with `DATABASE_URL` set in
+   the current session:
+
+   ```powershell
+   pg_dump --format=custom --file="assessment-intervention-before-release.dump" "$env:DATABASE_URL"
+   ```
+
+5. Only after Preview checks and backup verification, apply migrations to
+   production through the normal release workflow. The production build runs
+   `prisma migrate deploy` automatically.
+
+Rate limits are shared across serverless instances using PostgreSQL: sign-in
+allows 10 attempts per IP per 15 minutes, public registration allows 20 per IP
+per hour, and initial admin setup allows 5 attempts per IP per hour. If the
+rate-limit table is unavailable, these endpoints fail closed with HTTP 503.
 
 ## Typical workflow
 

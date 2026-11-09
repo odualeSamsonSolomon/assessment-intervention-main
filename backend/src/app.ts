@@ -7,6 +7,7 @@ dotenv.config();
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', process.env.VERCEL ? 1 : false);
 
 const allowedOrigins = [
   'http://localhost:5500',

@@ -36,3 +36,11 @@ export const requireAdmin = (req: AuthenticatedRequest, res: Response, next: Nex
 
   return next();
 };
+
+export const requireStaff = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'TEACHER') {
+    return res.status(403).json({ message: 'Staff access required.' });
+  }
+
+  return next();
+};

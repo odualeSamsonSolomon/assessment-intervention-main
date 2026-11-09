@@ -10,21 +10,25 @@ datasource db {
 enum UserRole {
   ADMIN
   TEACHER
+  STUDENT
 }
 
 model User {
-  id          String        @id @default(cuid())
-  email       String        @unique
-  password    String
-  name        String
-  role        UserRole      @default(TEACHER)
-  subject     String?
-  classes     String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  assessments Assessment[]
-  interventions Intervention[]
-  students     Student[]      @relation("AssignedTeacher")
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  password           String
+  name               String
+  role               UserRole      @default(TEACHER)
+  subject            String?
+  classes            String?
+  isApproved         Boolean       @default(true)
+  requestedStudentId String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  assessments        Assessment[]
+  interventions      Intervention[]
+  students            Student[]      @relation("AssignedTeacher")
+  studentProfile     Student?      @relation("StudentLogin")
 }
 
 model Student {
@@ -39,6 +43,8 @@ model Student {
   updatedAt     DateTime      @updatedAt
   teacherId     String?
   teacher       User?         @relation("AssignedTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  loginUserId   String?       @unique
+  loginUser     User?         @relation("StudentLogin", fields: [loginUserId], references: [id], onDelete: SetNull)
   results       Result[]
   interventions Intervention[]
 }
@@ -122,4 +128,13 @@ model FollowUp {
   date           DateTime
   createdAt      DateTime      @default(now())
   intervention   Intervention  @relation(fields: [interventionId], references: [id], onDelete: Cascade)
+}
+
+model AuthRateLimitBucket {
+  key          String   @id
+  windowStart  DateTime
+  requestCount Int
+  updatedAt    DateTime @updatedAt
+
+  @@index([updatedAt])
 }

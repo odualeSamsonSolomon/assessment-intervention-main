@@ -29,12 +29,19 @@ export const getDashboardData = async (req: AuthenticatedRequest, res: Response)
     const teacherId = teacherIdFor(req);
     const assessmentWhere = await assessmentWhereFor(teacherId);
     const [students, assessments, results, interventions, followUps, users, subjects] = await Promise.all([
-      prisma.student.findMany({ where: teacherId ? { teacherId } : {}, include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } }),
+      prisma.student.findMany({
+        where: teacherId ? { teacherId } : {},
+        include: {
+          teacher: { select: { id: true, name: true } },
+          loginUser: { select: { isApproved: true } },
+        },
+        orderBy: { name: 'asc' },
+      }),
       prisma.assessment.findMany({ where: assessmentWhere, orderBy: { date: 'desc' } }),
       prisma.result.findMany({ where: teacherId ? { student: { teacherId } } : {}, include: { assessment: true, student: true } }),
       prisma.intervention.findMany({ where: teacherId ? { student: { teacherId } } : {}, include: { student: true, followUp: true, teacher: { select: { id: true, name: true } } } }),
       prisma.followUp.findMany({ where: teacherId ? { intervention: { student: { teacherId } } } : {}, include: { intervention: true } }),
-      prisma.user.findMany({ where: teacherId ? { id: teacherId } : {}, orderBy: { name: 'asc' } }),
+      prisma.user.findMany({ where: teacherId ? { id: teacherId, isApproved: true } : { isApproved: true }, orderBy: { name: 'asc' } }),
       prisma.subject.findMany({ include: { topics: { orderBy: { name: 'asc' } } }, orderBy: { name: 'asc' } }),
     ]);
 
@@ -45,7 +52,10 @@ export const getDashboardData = async (req: AuthenticatedRequest, res: Response)
 
     return res.json({
       user: req.user,
-      students,
+      students: students.map(({ loginUser, ...student }) => ({
+        ...student,
+        portalAccountStatus: loginUser ? (loginUser.isApproved ? 'active' : 'pending') : 'none',
+      })),
       assessments,
       results: results.map((result) => ({
         id: result.id,
@@ -106,24 +116,47 @@ export const getDashboardData = async (req: AuthenticatedRequest, res: Response)
 
 export const getStudents = async (req: AuthenticatedRequest, res: Response) => {
   const teacherId = teacherIdFor(req);
-  const students = await prisma.student.findMany({ where: teacherId ? { teacherId } : {}, include: { teacher: { select: { id: true, name: true } } }, orderBy: { name: 'asc' } });
-  return res.json(students);
+  const students = await prisma.student.findMany({
+    where: teacherId ? { teacherId } : {},
+    include: {
+      teacher: { select: { id: true, name: true } },
+      loginUser: { select: { isApproved: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+  return res.json(students.map(({ loginUser, ...student }) => ({
+    ...student,
+    portalAccountStatus: loginUser ? (loginUser.isApproved ? 'active' : 'pending') : 'none',
+  })));
 };
 
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { name, className, gender, status, session, studentId } = req.body ?? {};
+    const body = req.body ?? {};
+    const { name, className, gender, status, session, studentId } = body;
     if (!name || !className || !session || !studentId) {
       return res.status(400).json({ message: 'Student ID, name, class and session are required.' });
     }
 
-    const teachers = await prisma.user.findMany({
-      where: { role: 'TEACHER' },
-      select: { id: true, _count: { select: { students: true } } },
-    });
-    const minimumLoad = teachers.length ? Math.min(...teachers.map((teacher) => teacher._count.students)) : 0;
-    const leastLoadedTeachers = teachers.filter((teacher) => teacher._count.students === minimumLoad);
-    const teacher = leastLoadedTeachers.length ? leastLoadedTeachers[randomInt(leastLoadedTeachers.length)] : null;
+    let teacherId: string | null = null;
+    if (Object.hasOwn(body, 'teacherId')) {
+      teacherId = body.teacherId ? String(body.teacherId) : null;
+      if (teacherId && !await prisma.user.findFirst({
+        where: { id: teacherId, role: 'TEACHER', isApproved: true },
+        select: { id: true },
+      })) {
+        return res.status(400).json({ message: 'Select an approved teacher or leave the student unassigned.' });
+      }
+    } else {
+      const teachers = await prisma.user.findMany({
+        where: { role: 'TEACHER', isApproved: true },
+        select: { id: true, _count: { select: { students: true } } },
+      });
+      const minimumLoad = teachers.length ? Math.min(...teachers.map((teacher) => teacher._count.students)) : 0;
+      const leastLoadedTeachers = teachers.filter((teacher) => teacher._count.students === minimumLoad);
+      teacherId = leastLoadedTeachers.length ? leastLoadedTeachers[randomInt(leastLoadedTeachers.length)].id : null;
+    }
+
     const student = await prisma.student.create({
       data: {
         studentId: String(studentId),
@@ -132,7 +165,7 @@ export const createStudent = async (req: Request, res: Response) => {
         gender: gender ? String(gender) : null,
         status: status ? String(status) : 'Active',
         session: String(session),
-        teacherId: teacher?.id ?? null,
+        teacherId,
       },
       include: { teacher: { select: { id: true, name: true } } },
     });
@@ -149,9 +182,17 @@ export const createStudent = async (req: Request, res: Response) => {
 
 export const updateStudent = async (req: Request, res: Response) => {
   try {
-    const { name, className, gender, status, session } = req.body ?? {};
+    const body = req.body ?? {};
+    const { name, className, gender, status, session, teacherId } = body;
     if (!name || !className || !session) {
       return res.status(400).json({ message: 'Student name, class and session are required.' });
+    }
+
+    if (Object.hasOwn(body, 'teacherId') && teacherId && !await prisma.user.findFirst({
+      where: { id: String(teacherId), role: 'TEACHER', isApproved: true },
+      select: { id: true },
+    })) {
+      return res.status(400).json({ message: 'Select an approved teacher or leave the student unassigned.' });
     }
 
     const student = await prisma.student.update({
@@ -162,6 +203,7 @@ export const updateStudent = async (req: Request, res: Response) => {
         gender: gender ? String(gender) : null,
         status: status ? String(status) : 'Active',
         session: String(session),
+        ...(Object.hasOwn(body, 'teacherId') ? { teacherId: teacherId ? String(teacherId) : null } : {}),
       },
       include: { teacher: { select: { id: true, name: true } } },
     });
@@ -560,5 +602,73 @@ export const saveFollowUp = async (req: AuthenticatedRequest, res: Response) => 
   } catch (error) {
     console.error('saveFollowUp error:', error);
     return res.status(500).json({ message: 'Unable to save follow-up result.' });
+  }
+};
+
+export const getStudentDashboard = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'STUDENT') {
+      return res.status(403).json({ message: 'Student portal access required.' });
+    }
+
+    const student = await prisma.student.findFirst({
+      where: {
+        loginUserId: req.user.id,
+        status: 'Active',
+        loginUser: { isApproved: true },
+      },
+      select: {
+        id: true,
+        studentId: true,
+        name: true,
+        className: true,
+        session: true,
+        results: {
+          where: { assessment: { status: 'Published' } },
+          select: {
+            id: true,
+            score: true,
+            assessment: {
+              select: { id: true, name: true, subject: true, type: true, date: true, maxScore: true, term: true, session: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        interventions: {
+          select: {
+            id: true,
+            subject: true,
+            topic: true,
+            startDate: true,
+            followUpDate: true,
+            status: true,
+            outcome: true,
+            followUpScore: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!student) return res.status(403).json({ message: 'Student portal account is inactive or unavailable.' });
+
+    return res.json({
+      user: { ...req.user, name: student.name },
+      student: {
+        studentId: student.studentId,
+        name: student.name,
+        className: student.className,
+        session: student.session,
+      },
+      results: student.results.map((result) => ({
+        id: result.id,
+        score: result.score,
+        assessment: { ...result.assessment, max: result.assessment.maxScore },
+      })),
+      interventions: student.interventions,
+    });
+  } catch (error) {
+    console.error('getStudentDashboard error:', error);
+    return res.status(500).json({ message: 'Unable to load student portal data.' });
   }
 };

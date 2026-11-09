@@ -21,6 +21,9 @@ const state = {
   interventions: [],
   followUps: [],
   users: [],
+  pendingTeachers: [],
+  pendingStudents: [],
+  studentPortal: null,
   subjects: [],
   reportFilters: { session: "", term: "", className: "", subject: "", type: "" }
 };
@@ -61,7 +64,10 @@ const checkSetupStatus = async () => {
   }
   render();
 };
-const normalizeRole = (role) => String(role || "").toUpperCase() === "ADMIN" ? "admin" : "teacher";
+const normalizeRole = (role) => {
+  const normalized = String(role || "").toUpperCase();
+  return normalized === "ADMIN" ? "admin" : normalized === "STUDENT" ? "student" : "teacher";
+};
 const fallbackUser = { name: "Authenticated User", role: "Super Admin", initials: "AU" };
 const mapStudent = (student) => ({
   id: student.studentId || student.id,
@@ -70,6 +76,7 @@ const mapStudent = (student) => ({
   className: student.className,
   teacherId: student.teacherId || null,
   teacherName: student.teacher?.name || "Unassigned",
+  portalAccountStatus: student.portalAccountStatus || "none",
   gender: student.gender || "Not specified",
   status: student.status || "Active",
   session: student.session || session
@@ -77,6 +84,15 @@ const mapStudent = (student) => ({
 const loadRealData = async () => {
   if (!sessionStorage.getItem("ait-token")) return;
   try {
+    if (sessionStorage.getItem("ait-role") === "student") {
+      const data = await apiRequest("/student/dashboard");
+      state.role = "student";
+      state.user = { name: data.user?.name || data.student.name, role: "Student", initials: initials(data.student.name) };
+      state.studentPortal = data;
+      render();
+      return;
+    }
+
     let data = await apiRequest("/dashboard");
     if (String(data.user?.role || "").toUpperCase() === "ADMIN" && !data.subjects?.length) {
       try {
@@ -136,6 +152,8 @@ const loadRealData = async () => {
       date: follow.date ? follow.date.slice(0, 10) : ""
     })) : [];
     state.users = Array.isArray(data.users) ? data.users : [];
+    state.pendingTeachers = state.role === "admin" ? await apiRequest("/teachers/pending") : [];
+    state.pendingStudents = state.role === "admin" ? await apiRequest("/students/pending-accounts") : [];
     state.subjects = Array.isArray(data.subjects) ? data.subjects : [];
     subjects = state.subjects.map((subject) => subject.name);
     if (!sessionStorage.getItem("ait-auth")) sessionStorage.setItem("ait-auth", "true");
@@ -153,6 +171,8 @@ const loadRealData = async () => {
     state.interventions = [];
     state.followUps = [];
     state.users = [];
+    state.pendingTeachers = [];
+    state.pendingStudents = [];
     state.subjects = [];
     subjects = [];
     showToast("School backend is unavailable. Start the API service to load live data.");
@@ -209,14 +229,47 @@ function setupAdminView() {
   </section></main>`;
 }
 
+function teacherRegistrationView() {
+  return `<main class="login-shell"><section class="login-card">
+    <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Teacher account registration</p></div></div>
+    <h2>Register as a teacher</h2><p class="intro">Submit your details for administrator approval. You can sign in after your request is approved.</p>
+    <form id="teacher-register-form"><div class="field"><label for="register-name">Full Name</label><input id="register-name" name="name" required autocomplete="name"></div>
+      <div class="field"><label for="register-email">Email address</label><input id="register-email" name="email" required type="email" autocomplete="email"></div>
+      <div class="field"><label for="register-subject">Subject Area</label><input id="register-subject" name="subject" required></div>
+      <div class="field"><label for="register-classes">Classes you teach (optional)</label><input id="register-classes" name="classes" placeholder="e.g. SSS1, SSS2"></div>
+      <div class="field"><label for="register-password">Password (12+ characters)</label><input id="register-password" name="password" required minlength="12" type="password" autocomplete="new-password"></div>
+      <button class="btn btn-primary btn-block" type="submit">Submit Registration <span>→</span></button>
+    </form>
+    <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
+  </section></main>`;
+}
+
+function studentRegistrationView() {
+  return `<main class="login-shell"><section class="login-card">
+    <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Student account registration</p></div></div>
+    <h2>Request a student account</h2><p class="intro">Your account stays locked until a school administrator verifies your details and links your school record.</p>
+    <form id="student-register-form"><div class="field"><label for="student-register-name">Full Name</label><input id="student-register-name" name="name" required autocomplete="name"></div>
+      <div class="field"><label for="student-register-id">School Student ID</label><input id="student-register-id" name="studentId" required autocomplete="off"></div>
+      <div class="field"><label for="student-register-email">Email address</label><input id="student-register-email" name="email" required type="email" autocomplete="email"></div>
+      <div class="field"><label for="student-register-password">Choose Password (12+ characters)</label><input id="student-register-password" name="password" required minlength="12" type="password" autocomplete="new-password"></div>
+      <div class="field"><label for="student-register-confirm">Confirm Password</label><input id="student-register-confirm" required minlength="12" type="password" autocomplete="new-password"></div>
+      <button class="btn btn-primary btn-block" type="submit">Submit for Approval <span>→</span></button>
+    </form>
+    <p class="login-back">Already submitted? Sign in after approval.</p>
+    <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
+  </section></main>`;
+}
+
 function loginView() {
+  if (authView === "register-teacher") return teacherRegistrationView();
+  if (authView === "register-student") return studentRegistrationView();
   if (setupStatusError) {
     return `<main class="login-shell"><section class="login-card"><div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div><h2>Backend unavailable</h2><p class="intro">Connect to the school backend to check administrator setup.</p><button class="btn btn-primary btn-block" type="button" data-action="retry-setup-status">Retry connection</button></section></main>`;
   }
   if (authView === "forgot") {
     return `<main class="login-shell"><section class="login-card">
       <div class="brand"><div class="brand-mark">A</div><div><h1>Assessment-to-Intervention<br>Tracking System</h1><p>Internal academic support workspace</p></div></div>
-      <h2>Password help</h2><p class="intro">Self-service password reset is not configured. Contact your school administrator to reset your account password.</p>
+      <h2>Password help</h2><p class="intro">Password reset is not available in the portal yet. Contact your designated system operator for help. Never share your password by email or chat.</p>
       <p class="login-back"><button class="text-link" type="button" data-action="back-to-login">← Back to sign in</button></p>
     </section></main>`;
   }
@@ -230,12 +283,16 @@ function loginView() {
       <button class="btn btn-primary btn-block" type="submit">Sign In <span>→</span></button>
     </form>
     <p class="login-back"><button class="text-link" type="button" data-action="forgot-password">Forgot password?</button></p>
+    <p class="login-back">A teacher? <button class="text-link" type="button" data-action="teacher-register">Register here</button></p>
+    <p class="login-back">A student? <button class="text-link" type="button" data-action="student-register">Request a portal account</button></p>
   </section></main>`;
 }
 
 const navForRole = () => state.role === "admin"
   ? [{ id: "dashboard", label: "Dashboard", icon: "⌂" }, { id: "students", label: "Students", icon: "♙" }, { id: "teachers", label: "Teachers", icon: "♧" }, { id: "classes", label: "Classes", icon: "▦" }, { id: "subjects", label: "Subjects & Topics", icon: "◈" }, { id: "assessments", label: "Assessments", icon: "✓" }, { id: "results", label: "Results", icon: "▤" }, { id: "interventions", label: "Interventions", icon: "✦" }, { id: "follow-up", label: "Follow-Up", icon: "↗" }, { id: "reports", label: "Reports", icon: "▥" }]
-  : [{ id: "dashboard", label: "Dashboard", icon: "⌂" }, { id: "students", label: "Students", icon: "♙" }, { id: "assessments", label: "Assessments", icon: "✓" }, { id: "results", label: "Results", icon: "▤" }, { id: "interventions", label: "Interventions", icon: "✦" }, { id: "follow-up", label: "Follow-Up", icon: "↗" }, { id: "reports", label: "Reports", icon: "▥" }];
+  : state.role === "student"
+    ? [{ id: "dashboard", label: "My Portal", icon: "⌂" }]
+    : [{ id: "dashboard", label: "Dashboard", icon: "⌂" }, { id: "students", label: "Students", icon: "♙" }, { id: "assessments", label: "Assessments", icon: "✓" }, { id: "results", label: "Results", icon: "▤" }, { id: "interventions", label: "Interventions", icon: "✦" }, { id: "follow-up", label: "Follow-Up", icon: "↗" }, { id: "reports", label: "Reports", icon: "▥" }];
 
 function shell(content) {
   const nav = navForRole();
@@ -248,7 +305,7 @@ function shell(content) {
 }
 
 function pageTitle(page) {
-  return ({ dashboard: `${state.role === "admin" ? "Super Admin" : "Teacher"} Dashboard`, students: "Students", "student-details": "Student Details", assessments: "Assessments", "create-assessment": "Create Assessment", "record-scores": "Record Scores", results: "Results & Performance", interventions: "Interventions", "create-intervention": "Create Intervention", "follow-up": "Follow-Up & Improvement", reports: "Reports", teachers: "Teachers", classes: "Classes", subjects: "Subjects & Topics" })[page] || "Dashboard";
+  return ({ dashboard: state.role === "admin" ? "Super Admin Dashboard" : state.role === "student" ? "My Student Portal" : "Teacher Dashboard", students: "Students", "student-details": "Student Details", assessments: "Assessments", "create-assessment": "Create Assessment", "record-scores": "Record Scores", results: "Results & Performance", interventions: "Interventions", "create-intervention": "Create Intervention", "follow-up": "Follow-Up & Improvement", reports: "Reports", teachers: "Teachers", classes: "Classes", subjects: "Subjects & Topics" })[page] || "Dashboard";
 }
 
 function statCards(items) {
@@ -268,19 +325,44 @@ function dashboardView() {
     <section class="card"><div class="card-header"><div><h3>${state.role === "admin" ? "School Records" : "Quick Actions"}</h3><p>${state.role === "admin" ? "Manage the records in this workspace" : "Common tasks for your classes"}</p></div></div><div class="card-body">${state.role === "admin" ? emptyState("No activity feed", "An activity feed is not configured.") : `<div class="quick-actions"><button data-route="students">♙ &nbsp; View Students</button><button data-route="create-assessment">＋ &nbsp; Create Assessment</button><button data-route="results">▤ &nbsp; Review Results</button><button data-route="create-intervention">✦ &nbsp; Create Intervention</button></div>`}</div></section></div>`;
 }
 
+function studentPortalView() {
+  const portal = state.studentPortal;
+  if (!portal) return emptyState("Student information unavailable", "Sign out and sign in again to reload your student account.");
+  const results = portal.results || [];
+  const interventions = portal.interventions || [];
+  const average = results.length
+    ? Math.round(results.reduce((total, result) => total + percent(result.score, result.assessment.max), 0) / results.length)
+    : 0;
+  const resultRows = results.map((result) => {
+    const assessment = result.assessment;
+    const percentage = percent(result.score, assessment.max);
+    return `<tr><td class="primary-text">${esc(assessment.name)}</td><td>${esc(assessment.subject)}</td><td>${esc(assessment.term)}</td><td>${fmtDate(assessment.date.slice(0, 10))}</td><td>${result.score} / ${assessment.max}</td><td>${percentage}%</td><td>${badge(statusFor(percentage))}</td></tr>`;
+  }).join("");
+  const interventionRows = interventions.map((item) =>
+    `<tr><td>${esc(item.subject)}</td><td>${esc(item.topic)}</td><td>${fmtDate(item.startDate.slice(0, 10))}</td><td>${fmtDate(item.followUpDate?.slice(0, 10))}</td><td>${badge(item.status)}</td><td>${item.followUpScore === null ? "—" : `${item.followUpScore}%`}</td><td>${esc(item.outcome || "—")}</td></tr>`
+  ).join("");
+
+  return `<div class="page-heading"><div><h1>Welcome, ${esc(portal.student.name)}</h1><p>Your assessment results and academic support updates.</p></div><div class="actions">${printButton("Print My Portal")}</div></div>
+    <section class="card"><div class="card-body"><div class="info-grid"><div class="info-item"><span>Student ID</span><strong>${esc(portal.student.studentId)}</strong></div><div class="info-item"><span>Class</span><strong>${esc(portal.student.className)}</strong></div><div class="info-item"><span>Academic Session</span><strong>${esc(portal.student.session)}</strong></div></div></div></section>
+    ${statCards([{ label: "Published Assessments", value: results.length, icon: "✓", note: "Results available to you" }, { label: "Average Score", value: `${average}%`, icon: "▤", note: "Across published assessments" }, { label: "Support Plans", value: interventions.length, icon: "✦", note: "Your intervention updates" }])}
+    <section class="card"><div class="card-header"><div><h3>My Assessment Results</h3><p>Only published results are shown.</p></div></div><div class="table-wrap">${results.length ? `<table><thead><tr><th>Assessment</th><th>Subject</th><th>Term</th><th>Date</th><th>Score</th><th>Percentage</th><th>Status</th></tr></thead><tbody>${resultRows}</tbody></table>` : emptyState("No published results yet", "Your results will appear here after your teacher publishes them.")}</div></section>
+    <section class="card" style="margin-top:20px"><div class="card-header"><div><h3>My Support Updates</h3><p>Progress and follow-up information shared by your school.</p></div></div><div class="table-wrap">${interventions.length ? `<table><thead><tr><th>Subject</th><th>Topic</th><th>Start Date</th><th>Follow-Up</th><th>Status</th><th>Follow-Up Score</th><th>Outcome</th></tr></thead><tbody>${interventionRows}</tbody></table>` : emptyState("No support updates", "There are no intervention updates for your account.")}</div></section>`;
+}
+
 function emptyState(title, text, icon = "⌁") { return `<div class="empty-state"><div class="empty-icon">${icon}</div><strong>${title}</strong><span>${text}</span></div>`; }
 function pageHeader(title, description, action) { return `<div class="page-heading"><div><h1>${title}</h1><p>${description}</p></div><div class="actions">${action || printButton()}</div></div>`; }
 function printButton(label = "Print") { return `<button class="btn btn-secondary" data-action="print-page">▣ ${label}</button>`; }
 
 function studentsView() {
-  return `${pageHeader("Students", "View and manage students enrolled in internal assessment tracking.", state.role === "admin" ? '<button class="btn btn-primary" data-action="add-student">＋ Add Student</button>' : "")}<section class="card"><div class="filter-bar"><input class="search-input" id="student-search" placeholder="Search by student name or ID"><select id="student-class">${selectOptions(classes, "", true)}</select><select id="student-status">${selectOptions(["Active", "Inactive"], "", true)}</select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div class="table-wrap" id="students-table"></div></section>`;
+  const pendingRows = state.pendingStudents.map((request) => `<tr><td class="primary-text">${esc(request.name)}</td><td>${esc(request.email)}</td><td>${esc(request.requestedStudentId)}</td><td>${fmtDate(request.createdAt.slice(0, 10))}</td><td><button class="link-action" data-action="approve-student" data-id="${esc(request.id)}">Verify &amp; approve</button><button class="link-action" data-action="reject-student" data-id="${esc(request.id)}">Reject</button></td></tr>`).join("");
+  return `${pageHeader("Students", "View and manage students enrolled in internal assessment tracking.", state.role === "admin" ? '<button class="btn btn-primary" data-action="add-student">＋ Add Student</button>' : "")}${state.role === "admin" ? `<section class="card" style="margin-bottom:20px"><div class="card-header"><div><h3>Pending Student Account Requests</h3><p>Verify each request and link it to the matching school student record before granting access.</p></div>${badge(String(state.pendingStudents.length))}</div><div class="table-wrap"><table><thead><tr><th>Student Name</th><th>Email</th><th>Claimed Student ID</th><th>Requested</th><th>Action</th></tr></thead><tbody>${pendingRows || `<tr><td colspan="5">There are no pending student account requests.</td></tr>`}</tbody></table></div></section>` : ""}<section class="card"><div class="filter-bar"><input class="search-input" id="student-search" placeholder="Search by student name or ID"><select id="student-class">${selectOptions(classes, "", true)}</select><select id="student-status">${selectOptions(["Active", "Inactive"], "", true)}</select><button class="btn btn-secondary btn-sm" data-action="clear-filters">Clear</button></div><div class="table-wrap" id="students-table"></div></section>`;
 }
 function renderStudentsTable() {
   const search = (document.getElementById("student-search")?.value || "").toLowerCase();
   const classFilter = document.getElementById("student-class")?.value || "";
   const status = document.getElementById("student-status")?.value || "";
   const rows = state.students.filter((s) => (!search || `${s.name} ${s.id}`.toLowerCase().includes(search)) && (!classFilter || s.className === classFilter) && (!status || s.status === status));
-  document.getElementById("students-table").innerHTML = rows.length ? `<table><thead><tr><th>Student ID</th><th>Student Name</th><th>Class</th><th>Assigned Teacher</th><th>Academic Session</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows.map((student) => `<tr><td class="primary-text">${esc(student.id)}</td><td>${esc(student.name)}</td><td>${esc(student.className)}</td><td>${esc(student.teacherName)}</td><td>${esc(student.session)}</td><td>${badge(student.status)}</td><td><button class="link-action" data-route="student-details" data-id="${esc(student.id)}">View</button></td></tr>`).join("")}</tbody></table>` : emptyState(search || classFilter || status ? "No search results" : "No students found", search || classFilter || status ? "Try changing or clearing your filters." : "Students will appear here after they are added.");
+  document.getElementById("students-table").innerHTML = rows.length ? `<table><thead><tr><th>Student ID</th><th>Student Name</th><th>Class</th><th>Assigned Teacher</th><th>Academic Session</th><th>Status</th><th>Portal Account</th><th>Action</th></tr></thead><tbody>${rows.map((student) => `<tr><td class="primary-text">${esc(student.id)}</td><td>${esc(student.name)}</td><td>${esc(student.className)}</td><td>${esc(student.teacherName)}</td><td>${esc(student.session)}</td><td>${badge(student.status)}</td><td>${student.portalAccountStatus === "active" ? badge("Active") : student.portalAccountStatus === "pending" ? badge("Pending approval") : "Not registered"}</td><td><button class="link-action" data-route="student-details" data-id="${esc(student.id)}">View</button>${state.role === "admin" ? `<button class="link-action" data-action="edit-student" data-id="${esc(student.id)}">Edit</button>` : ""}</td></tr>`).join("")}</tbody></table>` : emptyState(search || classFilter || status ? "No search results" : "No students found", search || classFilter || status ? "Try changing or clearing your filters." : "Students will appear here after they are added.");
   bindGeneratedActions(document.getElementById("students-table"));
 }
 
@@ -436,18 +518,26 @@ function simpleDirectoryView(type) {
   const rows = isSubjects
     ? data.map(([name, count, id]) => `<tr><td class="primary-text">${esc(name)}</td><td>${count}</td><td><button class="link-action" data-action="manage-topics" data-id="${id}">Manage Topics</button><button class="link-action" data-action="edit-subject" data-id="${id}">Edit</button><button class="link-action" data-action="delete-subject" data-id="${id}">Delete</button></td></tr>`).join("")
     : data.map((row) => `<tr>${row.map((cell, index) => `<td class="${index === 0 ? "primary-text" : ""}">${esc(cell)}</td>`).join("")}</tr>`).join("");
-  return `${pageHeader(title, isTeachers ? "Manage teacher accounts and class assignments." : isSubjects ? "Manage curriculum subjects and their topics." : "Classes represented by enrolled students.", action)}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${isTeachers ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${data.length ? rows : `<tr><td colspan="${headers.length}">No ${isTeachers ? "teachers have been added" : isSubjects ? "subjects have been added" : "classes have students"} yet.</td></tr>`}</tbody></table></div></section>`;
+  const pendingRows = state.pendingTeachers.map((teacher) => `<tr><td class="primary-text">${esc(teacher.name)}</td><td>${esc(teacher.email)}</td><td>${esc(teacher.subject || "")}</td><td>${esc(teacher.classes || "Not specified")}</td><td>${fmtDate(teacher.createdAt.slice(0, 10))}</td><td><button class="link-action" data-action="approve-teacher" data-id="${esc(teacher.id)}">Approve</button><button class="link-action" data-action="reject-teacher" data-id="${esc(teacher.id)}">Reject</button></td></tr>`).join("");
+  return `${pageHeader(title, isTeachers ? "Manage teacher accounts and review self-registration requests." : isSubjects ? "Manage curriculum subjects and their topics." : "Classes represented by enrolled students.", action)}${isTeachers ? `<section class="card" style="margin-bottom:20px"><div class="card-header"><div><h3>Pending Teacher Requests</h3><p>Approve requests before teachers can sign in. Assign students after approval.</p></div>${badge(String(state.pendingTeachers.length))}</div><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Subject</th><th>Requested Classes</th><th>Requested</th><th>Action</th></tr></thead><tbody>${pendingRows || `<tr><td colspan="6">There are no pending teacher requests.</td></tr>`}</tbody></table></div></section>` : ""}<section class="card"><div class="filter-bar"><input class="search-input" id="directory-search" placeholder="Search ${isTeachers ? "teachers" : type === "classes" ? "classes" : "subjects"}..."><button class="btn btn-secondary btn-sm" data-action="clear-directory">Clear</button></div><div class="table-wrap"><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${data.length ? rows : `<tr><td colspan="${headers.length}">No ${isTeachers ? "teachers have been added" : isSubjects ? "subjects have been added" : "classes have students"} yet.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function render() {
-  if (!sessionStorage.getItem("ait-auth")) { app.innerHTML = loginView(); return; }
+  if (!sessionStorage.getItem("ait-auth")) {
+    app.innerHTML = loginView();
+    return;
+  }
   const page = pageName();
+  if (state.role === "student" && page !== "dashboard") {
+    go("dashboard");
+    return;
+  }
   if (state.role === "teacher" && ["teachers", "classes", "subjects"].includes(page)) {
     go("dashboard");
     return;
   }
   let content;
-  if (page === "dashboard") content = dashboardView();
+  if (page === "dashboard") content = state.role === "student" ? studentPortalView() : dashboardView();
   else if (page === "students") content = studentsView();
   else if (page === "student-details") content = studentDetailsView();
   else if (page === "assessments") content = assessmentsView();
@@ -566,7 +656,7 @@ function handleAction(action, element) {
   } else if (action === "print-page") {
     window.print();
   } else if (action === "toggle-password") {
-    const passwordInput = document.getElementById("login-password") || document.getElementById("setup-password");
+    const passwordInput = element.closest(".password-field")?.querySelector("input") || document.getElementById("login-password") || document.getElementById("setup-password");
     if (!passwordInput) return;
     const visible = passwordInput.type === "text";
     passwordInput.type = visible ? "password" : "text";
@@ -579,7 +669,22 @@ function handleAction(action, element) {
     render();
   } else if (action === "back-to-login") {
     authView = "login";
+    if (pageName() === "activate") go("login");
     render();
+  } else if (action === "teacher-register") {
+    authView = "register-teacher";
+    render();
+  } else if (action === "student-register") {
+    authView = "register-student";
+    render();
+  } else if (action === "approve-teacher") {
+    updateTeacherRequest(element.dataset.id, true);
+  } else if (action === "reject-teacher") {
+    updateTeacherRequest(element.dataset.id, false);
+  } else if (action === "approve-student") {
+    openStudentApprovalModal(element.dataset.id);
+  } else if (action === "reject-student") {
+    updateStudentRequest(element.dataset.id);
   } else if (state.role === "teacher" && ["add-student", "edit-student", "add-directory", "add-subject", "add-standard-subjects", "edit-subject", "delete-subject", "manage-topics"].includes(action)) {
     return showToast("This feature is available to Super Admins only.");
   } else if (action === "clear-filters") {
@@ -865,7 +970,85 @@ function openAssessmentModal(assessmentId) {
 }
 
 function openStudentModal(student = null) {
-  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${student ? "Edit Student" : "Add Student"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="student-modal-form"><div class="form-grid"><div class="field"><label>Student ID *</label><input name="studentId" required value="${esc(student?.id || "")}" ${student ? "readonly" : ""}></div><div class="field"><label>Full Name *</label><input name="name" required value="${esc(student?.name || "")}"></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes, student?.className || "")}</select></div><div class="field"><label>Academic Session *</label><input name="session" required value="${esc(student?.session || session)}"></div><div class="field"><label>Gender</label><select name="gender">${selectOptions(["Female", "Male"], student?.gender || "")}</select></div><div class="field"><label>Status</label><select name="status">${selectOptions(["Active", "Inactive"], student?.status || "Active")}</select></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Student</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`; document.body.appendChild(modal); modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove())); modal.querySelector("form").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); try { const endpoint = student ? `/students/${encodeURIComponent(student.id)}` : "/students"; await apiRequest(endpoint, { method: student ? "PUT" : "POST", body: JSON.stringify(data) }); await loadRealData(); modal.remove(); go("students"); showToast(student ? "Student updated successfully." : "Student added successfully."); } catch (error) { showToast(error.message || `Unable to ${student ? "update" : "add"} student.`); } });
+  const teachers = state.users.filter((user) => user.role === "TEACHER");
+  const teacherOptions = `<option value="">Unassigned</option>${teachers.map((teacher) => `<option value="${esc(teacher.id)}" ${teacher.id === student?.teacherId ? "selected" : ""}>${esc(teacher.name)}</option>`).join("")}`;
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>${student ? "Edit Student" : "Add Student"}</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><form id="student-modal-form"><div class="form-grid"><div class="field"><label>Student ID *</label><input name="studentId" required value="${esc(student?.id || "")}" ${student ? "readonly" : ""}></div><div class="field"><label>Full Name *</label><input name="name" required value="${esc(student?.name || "")}"></div><div class="field"><label>Class *</label><select name="className" required>${selectOptions(classes, student?.className || "")}</select></div><div class="field"><label>Academic Session *</label><input name="session" required value="${esc(student?.session || session)}"></div><div class="field"><label>Gender</label><select name="gender">${selectOptions(["Female", "Male"], student?.gender || "")}</select></div><div class="field"><label>Status</label><select name="status">${selectOptions(["Active", "Inactive"], student?.status || "Active")}</select></div><div class="field"><label>Assigned Teacher</label><select name="teacherId">${teacherOptions}</select></div></div><p class="muted">Admins assign students to approved teachers. Leave unassigned if a teacher has not been selected.</p><div class="form-actions"><button class="btn btn-primary" type="submit">Save Student</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    try {
+      const endpoint = student ? `/students/${encodeURIComponent(student.id)}` : "/students";
+      await apiRequest(endpoint, { method: student ? "PUT" : "POST", body: JSON.stringify(data) });
+      await loadRealData();
+      modal.remove();
+      go("students");
+      showToast(student ? "Student updated successfully." : "Student added successfully.");
+    } catch (error) {
+      showToast(error.message || `Unable to ${student ? "update" : "add"} student.`);
+    }
+  });
+}
+
+function openStudentApprovalModal(userId) {
+  const request = state.pendingStudents.find((item) => item.id === userId);
+  if (!request) return showToast("Pending student registration not found.");
+  const matchingStudents = state.students.filter((student) =>
+    student.id === request.requestedStudentId
+    && student.status === "Active"
+    && student.portalAccountStatus !== "active"
+  );
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<div class="modal"><div class="modal-header"><h3>Verify student registration</h3><button class="modal-close" data-close>×</button></div><div class="modal-body"><div class="notice"><strong>${esc(request.name)}</strong> · ${esc(request.email)}<br>Claimed student ID: ${esc(request.requestedStudentId)}<br>Verify the student's identity and email against school records before approving.</div>${matchingStudents.length ? `<form id="student-approval-form"><div class="field"><label>Matching active school record *</label><select name="studentRecordId" required>${matchingStudents.map((student) => `<option value="${esc(student.dbId)}">${esc(student.name)} · ${esc(student.id)} · ${esc(student.className)}</option>`).join("")}</select></div><div class="form-actions"><button class="btn btn-primary" type="submit">Verify &amp; Approve</button><button class="btn btn-secondary" type="button" data-close>Cancel</button></div></form>` : `<p>No unlinked active student record matches this requested ID. Confirm the ID or reject the request.</p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Close</button></div>`}</div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const studentRecordId = new FormData(event.target).get("studentRecordId");
+    try {
+      const response = await apiRequest(`/students/accounts/${encodeURIComponent(userId)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ studentRecordId }),
+      });
+      await loadRealData();
+      modal.remove();
+      go("students");
+      showToast(response.message || "Student account approved.");
+    } catch (error) {
+      showToast(error.message || "Unable to approve student registration.");
+    }
+  });
+}
+
+async function updateStudentRequest(userId) {
+  try {
+    await apiRequest(`/students/accounts/${encodeURIComponent(userId)}`, { method: "DELETE" });
+    await loadRealData();
+    go("students");
+    showToast("Student registration rejected.");
+  } catch (error) {
+    showToast(error.message || "Unable to update student registration.");
+  }
+}
+
+async function updateTeacherRequest(teacherId, approve) {
+  const path = approve
+    ? `/teachers/${encodeURIComponent(teacherId)}/approve`
+    : `/teachers/pending/${encodeURIComponent(teacherId)}`;
+  try {
+    await apiRequest(path, {
+      method: approve ? "POST" : "DELETE",
+    });
+    await loadRealData();
+    go("teachers");
+    showToast(approve ? "Teacher account approved." : "Teacher registration rejected.");
+  } catch (error) {
+    showToast(error.message || "Unable to update teacher registration.");
+  }
 }
 function openFollowUpModal(intervention) {
   const student = studentById(intervention.studentId);
@@ -930,7 +1113,7 @@ document.addEventListener("submit", async (event) => {
       state.role = normalizeRole(user.role);
       state.user = {
         name: user.name,
-        role: state.role === "admin" ? "Super Admin" : "Teacher",
+        role: state.role === "admin" ? "Super Admin" : state.role === "student" ? "Student" : "Teacher",
         initials: initials(user.name)
       };
       sessionStorage.setItem("ait-auth", "true");
@@ -943,17 +1126,47 @@ document.addEventListener("submit", async (event) => {
       showToast(error.message || "Unable to sign in.");
     }
   }
-  if (event.target.id === "forgot-password-form") {
+  if (event.target.id === "teacher-register-form") {
     event.preventDefault();
-    const email = event.target.querySelector("#reset-email").value.trim();
-    if (!email) return showToast("Enter your username or email address.");
-    showToast(`If an account exists for ${email}, a reset link has been sent.`);
-    event.target.reset();
+    const data = Object.fromEntries(new FormData(event.target));
+    try {
+      const response = await apiRequest("/auth/teachers/register", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      authView = "login";
+      render();
+      showToast(response.message || "Teacher registration submitted for approval.");
+    } catch (error) {
+      showToast(error.message || "Unable to submit teacher registration.");
+    }
+  }
+  if (event.target.id === "student-register-form") {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const confirmation = event.target.querySelector("#student-register-confirm").value;
+    if (data.password !== confirmation) return showToast("The passwords do not match.");
+    try {
+      const response = await apiRequest("/auth/students/register", {
+        method: "POST",
+        body: JSON.stringify({
+          name: data.name,
+          studentId: data.studentId,
+          email: data.email,
+          password: data.password,
+        }),
+      });
+      authView = "login";
+      render();
+      showToast(response.message || "Registration submitted for administrator approval.");
+    } catch (error) {
+      showToast(error.message || "Unable to submit student registration.");
+    }
   }
 });
 if (sessionStorage.getItem("ait-auth") && sessionStorage.getItem("ait-token")) {
-  state.role = sessionStorage.getItem("ait-role") === "teacher" ? "teacher" : "admin";
-  state.user = { name: "Loading profile...", role: state.role === "admin" ? "Super Admin" : "Teacher", initials: "LD" };
+  state.role = normalizeRole(sessionStorage.getItem("ait-role"));
+  state.user = { name: "Loading profile...", role: state.role === "admin" ? "Super Admin" : state.role === "student" ? "Student" : "Teacher", initials: "LD" };
   loadRealData();
 } else {
   render();
